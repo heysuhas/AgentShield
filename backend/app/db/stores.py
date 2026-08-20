@@ -6,6 +6,7 @@ from uuid import uuid4
 from sqlalchemy import delete, func, select
 from sqlalchemy.orm import Session
 
+from app.agentshield.approval import ApprovalRecord, ApprovalStatus
 from app.agentshield.audit import AuditEvent
 from app.agentshield.intent import AuthorizedIntent, IntentValidationResult
 from app.agentshield.policy_engine import Policy, PolicyViolation
@@ -16,6 +17,7 @@ from app.agentshield.transaction import (
     TransactionStatus,
 )
 from app.db.models import (
+    ApprovalModel,
     AuditEventModel,
     AuthorizedIntentModel,
     PolicyModel,
@@ -160,7 +162,11 @@ class SqlAlchemyTransactionStore:
         stmt = (
             select(func.coalesce(func.sum(TransactionModel.amount), 0))
             .where(TransactionModel.session_id == session_id)
-            .where(TransactionModel.status == TransactionStatus.AUTHORIZED.value)
+            .where(
+                TransactionModel.status.in_(
+                    [TransactionStatus.AUTHORIZED.value, TransactionStatus.PENDING.value]
+                )
+            )
         )
         return int(self._db.scalar(stmt) or 0)
 
@@ -459,6 +465,8 @@ class SqlAlchemyPolicyProvider:
             max_requests_per_window=model.max_requests_per_window,
             window_seconds=model.window_seconds if model.window_seconds is not None else 60,
             max_spend_per_window=model.max_spend_per_window,
+            require_approval_above=model.require_approval_above,
+            require_human_approval=bool(model.require_human_approval),
         )
 
     def set_policy(self, session_id: str, policy: Policy) -> None:
@@ -474,6 +482,8 @@ class SqlAlchemyPolicyProvider:
                 max_requests_per_window=policy.max_requests_per_window,
                 window_seconds=policy.window_seconds,
                 max_spend_per_window=policy.max_spend_per_window,
+                require_approval_above=policy.require_approval_above,
+                require_human_approval=policy.require_human_approval,
             )
             self._db.add(model)
         else:
@@ -483,6 +493,8 @@ class SqlAlchemyPolicyProvider:
             model.max_requests_per_window = policy.max_requests_per_window
             model.window_seconds = policy.window_seconds
             model.max_spend_per_window = policy.max_spend_per_window
+            model.require_approval_above = policy.require_approval_above
+            model.require_human_approval = policy.require_human_approval
 
         self._db.commit()
 
@@ -587,3 +599,117 @@ class SqlAlchemyIntentProvider:
     def reset(self) -> None:
         self._db.execute(delete(AuthorizedIntentModel))
         self._db.commit()
+
+
+class SqlAlchemyApprovalStore:
+    """Persistent human approval store backed by SQLAlchemy."""
+
+    def __init__(self, db: Session) -> None:
+        self._db = db
+
+    def create(
+        self,
+        *,
+        transaction_id: str,
+        session_id: str,
+        tool_name: str,
+        amount: int | None,
+        currency: str = "INR",
+        arguments: dict[str, Any] | None = None,
+        risk_score: float = 0.0,
+        risk_level: str = "MEDIUM",
+        reasons: list[str] | None = None,
+    ) -> ApprovalRecord:
+        _ensure_session(self._db, session_id)
+        appr_id = f"appr_{uuid4().hex[:12]}"
+        now = datetime.now(timezone.utc)
+        model = ApprovalModel(
+            approval_id=appr_id,
+            transaction_id=transaction_id,
+            session_id=session_id,
+            status=ApprovalStatus.PENDING.value,
+            tool_name=tool_name,
+            amount=amount,
+            currency=currency,
+            arguments=dict(arguments or {}),
+            risk_score=risk_score,
+            risk_level=risk_level,
+            reasons=list(reasons or []),
+            created_at=now,
+            updated_at=now,
+        )
+        self._db.add(model)
+        self._db.commit()
+        self._db.refresh(model)
+        return self._to_record(model)
+
+    def get(self, approval_id: str) -> ApprovalRecord | None:
+        stmt = select(ApprovalModel).where(ApprovalModel.approval_id == approval_id)
+        model = self._db.scalars(stmt).first()
+        return self._to_record(model) if model is not None else None
+
+    def get_by_transaction(self, transaction_id: str) -> ApprovalRecord | None:
+        stmt = select(ApprovalModel).where(ApprovalModel.transaction_id == transaction_id)
+        model = self._db.scalars(stmt).first()
+        return self._to_record(model) if model is not None else None
+
+    def update_status(
+        self,
+        approval_id: str,
+        *,
+        status: ApprovalStatus,
+        reviewed_by: str | None = None,
+        review_notes: str | None = None,
+    ) -> ApprovalRecord | None:
+        stmt = select(ApprovalModel).where(ApprovalModel.approval_id == approval_id)
+        model = self._db.scalars(stmt).first()
+        if model is None:
+            return None
+
+        model.status = status.value
+        if reviewed_by is not None:
+            model.reviewed_by = reviewed_by
+        if review_notes is not None:
+            model.review_notes = review_notes
+        model.updated_at = datetime.now(timezone.utc)
+
+        self._db.commit()
+        self._db.refresh(model)
+        return self._to_record(model)
+
+    def list_approvals(
+        self,
+        *,
+        session_id: str | None = None,
+        status: ApprovalStatus | None = None,
+        limit: int = 50,
+        offset: int = 0,
+    ) -> list[ApprovalRecord]:
+        stmt = select(ApprovalModel)
+        if session_id is not None:
+            stmt = stmt.where(ApprovalModel.session_id == session_id)
+        if status is not None:
+            stmt = stmt.where(ApprovalModel.status == status.value)
+        stmt = stmt.order_by(ApprovalModel.created_at.desc()).limit(limit).offset(offset)
+        models = self._db.scalars(stmt).all()
+        return [self._to_record(m) for m in models]
+
+    @staticmethod
+    def _to_record(model: ApprovalModel) -> ApprovalRecord:
+        return ApprovalRecord(
+            approval_id=model.approval_id,
+            transaction_id=model.transaction_id,
+            session_id=model.session_id,
+            status=ApprovalStatus(model.status),
+            tool_name=model.tool_name,
+            amount=model.amount,
+            currency=model.currency,
+            arguments=dict(model.arguments or {}),
+            risk_score=model.risk_score,
+            risk_level=model.risk_level,
+            reasons=list(model.reasons or []),
+            reviewed_by=model.reviewed_by,
+            review_notes=model.review_notes,
+            created_at=model.created_at,
+            updated_at=model.updated_at,
+        )

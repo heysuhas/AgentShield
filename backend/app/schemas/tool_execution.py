@@ -21,7 +21,7 @@ class ExecuteToolRequest(BaseModel):
 class ExecuteToolResponse(BaseModel):
     """Response returned by AgentShield for a tool execution request."""
 
-    decision: Literal["ALLOW", "BLOCK"]
+    decision: Literal["ALLOW", "BLOCK", "REVIEW"]
     session_id: str
     tool_name: str
     risk_score: float = Field(ge=0.0, le=1.0)
@@ -33,4 +33,5 @@ class ExecuteToolResponse(BaseModel):
     provider_result: PaymentResult | None = None
     transaction_id: str | None = None
     transaction_status: TransactionStatus | None = None
+    approval_id: str | None = None
     error: str | None = None

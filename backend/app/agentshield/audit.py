@@ -23,7 +23,7 @@ class AuditEvent(BaseModel):
     session_id: str
     tool_name: str
     arguments: dict[str, Any] = Field(default_factory=dict)
-    decision: Literal["ALLOW", "BLOCK"]
+    decision: Literal["ALLOW", "BLOCK", "REVIEW"]
     risk_score: float = Field(ge=0.0, le=1.0)
     risk_level: RiskLevel = "LOW"
     reasons: list[str] = Field(default_factory=list)
@@ -48,7 +48,7 @@ class AuditSink(Protocol):
         session_id: str,
         tool_name: str,
         arguments: dict[str, Any] | None = None,
-        decision: Literal["ALLOW", "BLOCK"],
+        decision: Literal["ALLOW", "BLOCK", "REVIEW"],
         risk_score: float,
         risk_level: RiskLevel = "LOW",
         reasons: list[str] | None = None,

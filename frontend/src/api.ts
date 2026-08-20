@@ -31,6 +31,7 @@ export async function createOrInitSession(
         max_session_spend: 10000,
         max_requests_per_window: 4,
         window_seconds: 60,
+        require_approval_above: 3000,
       },
       intent: intent || {
         category: 'footwear',
@@ -111,5 +112,54 @@ export async function reconcileSession(sessionId: string): Promise<SessionData> 
     method: 'POST',
   });
   if (!res.ok) throw new Error('Failed to reconcile session');
+  return res.json();
+}
+
+export async function fetchApprovals(
+  sessionId?: string,
+  status?: string,
+  limit = 30
+): Promise<{ total: number; items: any[] }> {
+  const params = new URLSearchParams();
+  if (sessionId) params.append('session_id', sessionId);
+  if (status) params.append('status', status);
+  params.append('limit', limit.toString());
+
+  const res = await fetch(`${API_BASE}/approvals?${params.toString()}`);
+  if (!res.ok) throw new Error('Failed to fetch approvals');
+  return res.json();
+}
+
+export async function approveReview(
+  approvalId: string,
+  reviewedBy = 'security_operator',
+  notes?: string
+): Promise<any> {
+  const res = await fetch(`${API_BASE}/approvals/${approvalId}/approve`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ reviewed_by: reviewedBy, review_notes: notes }),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: 'Failed to approve' }));
+    throw new Error(err.detail || 'Failed to approve');
+  }
+  return res.json();
+}
+
+export async function rejectReview(
+  approvalId: string,
+  reviewedBy = 'security_operator',
+  notes?: string
+): Promise<any> {
+  const res = await fetch(`${API_BASE}/approvals/${approvalId}/reject`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ reviewed_by: reviewedBy, review_notes: notes }),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: 'Failed to reject' }));
+    throw new Error(err.detail || 'Failed to reject');
+  }
   return res.json();
 }

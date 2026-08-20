@@ -291,7 +291,7 @@ class InMemoryTransactionStore:
             t.amount or 0
             for t in self._transactions.values()
             if t.session_id == session_id
-            and t.status == TransactionStatus.AUTHORIZED
+            and t.status in (TransactionStatus.AUTHORIZED, TransactionStatus.PENDING)
         )
 
     def list_stale_reservations(

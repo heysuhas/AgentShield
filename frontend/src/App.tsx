@@ -16,18 +16,24 @@ import {
   ChevronRight,
   Code,
   X,
-  Loader2
+  Loader2,
+  UserCheck,
+  CheckCircle2,
+  XCircle
 } from 'lucide-react';
 import {
+  approveReview,
   createOrInitSession,
   executeToolCall,
+  fetchApprovals,
   fetchAuditEvents,
   fetchHealth,
   fetchTransactions,
   reconcileSession,
+  rejectReview,
   resetSessionSpend
 } from './api';
-import type { AuditEvent, SessionData, Transaction } from './types';
+import type { ApprovalRecord, AuditEvent, SessionData, Transaction } from './types';
 
 const DEFAULT_SESSION_ID = 'demo_shopper_01';
 
@@ -36,20 +42,22 @@ export default function App() {
   const [session, setSession] = useState<SessionData | null>(null);
   const [auditEvents, setAuditEvents] = useState<AuditEvent[]>([]);
   const [transactions, setTransactions] = useState<Transaction[]>([]);
+  const [pendingApprovals, setPendingApprovals] = useState<ApprovalRecord[]>([]);
   const [isBackendHealthy, setIsBackendHealthy] = useState<boolean | null>(null);
   const [loading, setLoading] = useState(false);
   const [executingDemo, setExecutingDemo] = useState<string | null>(null);
   const [lastResult, setLastResult] = useState<any>(null);
   const [selectedEvent, setSelectedEvent] = useState<AuditEvent | null>(null);
+  const [reviewingId, setReviewingId] = useState<string | null>(null);
 
   // Custom tool execution form state
   const [customTool, setCustomTool] = useState('create_order');
-  const [customAmount, setCustomAmount] = useState('3500');
+  const [customAmount, setCustomAmount] = useState('1500');
   const [customCategory, setCustomCategory] = useState('footwear');
   const [customPurpose, setCustomPurpose] = useState('running shoes');
   const [customRecipient, setCustomRecipient] = useState('');
 
-  // Load session and audit log
+  // Load session, audit log, and approvals
   const refreshData = React.useCallback(async () => {
     try {
       const sess = await createOrInitSession(sessionId);
@@ -58,6 +66,8 @@ export default function App() {
       setAuditEvents(audit.items);
       const txns = await fetchTransactions(sessionId, undefined, 50);
       setTransactions(txns.items);
+      const approvals = await fetchApprovals(sessionId, 'PENDING', 20);
+      setPendingApprovals(approvals.items);
     } catch (e) {
       console.error(e);
     }
@@ -111,6 +121,32 @@ export default function App() {
     } finally {
       setLoading(false);
       setExecutingDemo(null);
+    }
+  };
+
+  const handleApprove = async (approvalId: string) => {
+    setReviewingId(approvalId);
+    try {
+      const res = await approveReview(approvalId, 'security_admin', 'Approved via Operator Dashboard');
+      setLastResult(res);
+      await refreshData();
+    } catch (err: any) {
+      alert(`Approval error: ${err.message}`);
+    } finally {
+      setReviewingId(null);
+    }
+  };
+
+  const handleReject = async (approvalId: string) => {
+    setReviewingId(approvalId);
+    try {
+      const res = await rejectReview(approvalId, 'security_admin', 'Rejected by operator');
+      setLastResult(res);
+      await refreshData();
+    } catch (err: any) {
+      alert(`Rejection error: ${err.message}`);
+    } finally {
+      setReviewingId(null);
     }
   };
 
@@ -294,11 +330,11 @@ export default function App() {
             </div>
           </div>
 
-          {/* Card 3: Security Policy & Velocity */}
+          {/* Card 3: Security Policy & Review Threshold */}
           <div className="p-6 rounded-2xl bg-gradient-to-br from-slate-900/90 to-slate-950 border border-slate-800/80 shadow-md">
             <div className="flex items-center gap-2 text-slate-300 font-semibold text-sm mb-4">
               <Clock className="w-4 h-4 text-purple-400" />
-              Hard Policy & Velocity
+              Hard Policy & Review Rules
             </div>
 
             <div className="space-y-2 text-xs">
@@ -309,9 +345,9 @@ export default function App() {
                 </span>
               </div>
               <div className="flex justify-between py-1 border-b border-slate-800/60">
-                <span className="text-slate-400">Txn Amount Cap:</span>
-                <span className="font-mono text-slate-200">
-                  ₹{session?.policy?.max_transaction_amount?.toLocaleString() ?? 'No limit'}
+                <span className="text-slate-400">Review Threshold:</span>
+                <span className="font-mono text-amber-300 font-semibold">
+                  Above ₹{session?.policy?.require_approval_above?.toLocaleString() ?? 'None'}
                 </span>
               </div>
               <div className="flex justify-between py-1">
@@ -323,6 +359,73 @@ export default function App() {
             </div>
           </div>
         </section>
+
+        {/* Pending Human Approvals Queue */}
+        {pendingApprovals.length > 0 && (
+          <section className="space-y-4 p-6 rounded-2xl bg-amber-950/20 border border-amber-500/30 shadow-lg">
+            <div className="flex items-center justify-between">
+              <h2 className="text-base font-bold text-amber-300 flex items-center gap-2 m-0">
+                <UserCheck className="w-5 h-5 text-amber-400" />
+                Human Review Queue ({pendingApprovals.length} Action Required)
+              </h2>
+              <span className="text-xs text-amber-400/80">
+                These requests are held in PENDING state with reserved spend until authorized by an operator
+              </span>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {pendingApprovals.map((appr) => (
+                <div
+                  key={appr.approval_id}
+                  className="p-4 rounded-xl bg-slate-900/90 border border-amber-500/40 flex flex-col justify-between space-y-3"
+                >
+                  <div>
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-mono text-amber-400 font-bold bg-amber-950/80 px-2 py-0.5 rounded border border-amber-800">
+                        REVIEW REQUIRED
+                      </span>
+                      <span className="text-xs font-mono text-slate-400">{appr.approval_id}</span>
+                    </div>
+                    <div className="mt-2 space-y-1">
+                      <div className="text-sm font-semibold text-white">
+                        {appr.tool_name} (₹{appr.amount?.toLocaleString() ?? 0} {appr.currency})
+                      </div>
+                      <div className="text-xs text-slate-400">
+                        Arguments: {JSON.stringify(appr.arguments)}
+                      </div>
+                      <div className="text-xs text-amber-300">
+                        Reasons: {appr.reasons.join(', ')}
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-2 pt-2 border-t border-slate-800">
+                    <button
+                      onClick={() => handleApprove(appr.approval_id)}
+                      disabled={reviewingId === appr.approval_id}
+                      className="flex-1 bg-emerald-600 hover:bg-emerald-500 text-white font-medium py-1.5 px-3 rounded-lg text-xs transition flex items-center justify-center gap-1.5"
+                    >
+                      {reviewingId === appr.approval_id ? (
+                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      ) : (
+                        <CheckCircle2 className="w-3.5 h-3.5" />
+                      )}
+                      Authorize & Execute
+                    </button>
+                    <button
+                      onClick={() => handleReject(appr.approval_id)}
+                      disabled={reviewingId === appr.approval_id}
+                      className="flex-1 bg-rose-600/80 hover:bg-rose-500 text-white font-medium py-1.5 px-3 rounded-lg text-xs transition flex items-center justify-center gap-1.5"
+                    >
+                      <XCircle className="w-3.5 h-3.5" />
+                      Reject & Cancel
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </section>
+        )}
 
         {/* Live Attack & Scenarios Tester */}
         <section className="space-y-4">
@@ -336,12 +439,12 @@ export default function App() {
             </span>
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
             {/* Scenario 1: Allowed Action */}
             <button
               onClick={() =>
                 handleDemoRun('valid_order', 'create_order', {
-                  amount: 3500,
+                  amount: 1500,
                   category: 'footwear',
                   purpose: 'running shoes',
                 })
@@ -362,7 +465,7 @@ export default function App() {
                 </div>
                 <h3 className="text-sm font-semibold text-white mb-1">1. Valid Purchase</h3>
                 <p className="text-xs text-slate-400 leading-relaxed">
-                  Buy running shoes for ₹3,500. Matches intent, policy, and session limits.
+                  Buy running shoes for ₹1,500. Matches intent, policy, and session budget.
                 </p>
               </div>
               <div className="mt-3 text-[11px] font-mono text-emerald-400/80">
@@ -403,11 +506,11 @@ export default function App() {
               </div>
             </button>
 
-            {/* Scenario 3: Aggregate Limit Breach */}
+            {/* Scenario 3: Human Review Required */}
             <button
               onClick={() =>
-                handleDemoRun('aggregate_spend', 'create_order', {
-                  amount: 4500,
+                handleDemoRun('human_review', 'create_order', {
+                  amount: 3500,
                   category: 'footwear',
                   purpose: 'running shoes',
                 })
@@ -418,25 +521,58 @@ export default function App() {
               <div>
                 <div className="flex items-center justify-between mb-2">
                   <span className="text-xs font-semibold px-2 py-0.5 rounded bg-amber-950 text-amber-400 border border-amber-800">
-                    AGGREGATE CAP
+                    REVIEW
                   </span>
-                  {executingDemo === 'aggregate_spend' ? (
+                  {executingDemo === 'human_review' ? (
                     <Loader2 className="w-4 h-4 text-amber-400 animate-spin" />
                   ) : (
                     <Play className="w-4 h-4 text-amber-400 group-hover:translate-x-0.5 transition" />
                   )}
                 </div>
-                <h3 className="text-sm font-semibold text-white mb-1">3. Cumulative Budget</h3>
+                <h3 className="text-sm font-semibold text-white mb-1">3. High-Value Order</h3>
                 <p className="text-xs text-slate-400 leading-relaxed">
-                  Attempt ₹4,500 order. Multiple allowed purchases breach ₹10k session cap.
+                  ₹3,500 purchase exceeds ₹3,000 threshold. Holds in PENDING for operator review.
                 </p>
               </div>
               <div className="mt-3 text-[11px] font-mono text-amber-400/80">
+                Decision: REVIEW (Human Gate)
+              </div>
+            </button>
+
+            {/* Scenario 4: Aggregate Limit Breach */}
+            <button
+              onClick={() =>
+                handleDemoRun('aggregate_spend', 'create_order', {
+                  amount: 8000,
+                  category: 'footwear',
+                  purpose: 'running shoes',
+                })
+              }
+              disabled={loading}
+              className="p-4 rounded-xl text-left bg-slate-900/80 hover:bg-slate-850 border border-rose-500/30 hover:border-rose-500/60 transition group shadow-sm flex flex-col justify-between"
+            >
+              <div>
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-xs font-semibold px-2 py-0.5 rounded bg-rose-950 text-rose-400 border border-rose-800">
+                    AGGREGATE CAP
+                  </span>
+                  {executingDemo === 'aggregate_spend' ? (
+                    <Loader2 className="w-4 h-4 text-rose-400 animate-spin" />
+                  ) : (
+                    <Play className="w-4 h-4 text-rose-400 group-hover:translate-x-0.5 transition" />
+                  )}
+                </div>
+                <h3 className="text-sm font-semibold text-white mb-1">4. Budget Breach</h3>
+                <p className="text-xs text-slate-400 leading-relaxed">
+                  Attempt ₹8,000 order. Multiple allowed purchases breach ₹10k session cap.
+                </p>
+              </div>
+              <div className="mt-3 text-[11px] font-mono text-rose-400/80">
                 Risk: CRITICAL (Max Session Spend)
               </div>
             </button>
 
-            {/* Scenario 4: Velocity Burst */}
+            {/* Scenario 5: Velocity Burst */}
             <button
               onClick={handleVelocityBurst}
               disabled={loading}
@@ -453,7 +589,7 @@ export default function App() {
                     <Play className="w-4 h-4 text-purple-400 group-hover:translate-x-0.5 transition" />
                   )}
                 </div>
-                <h3 className="text-sm font-semibold text-white mb-1">4. Burst Anomaly</h3>
+                <h3 className="text-sm font-semibold text-white mb-1">5. Burst Anomaly</h3>
                 <p className="text-xs text-slate-400 leading-relaxed">
                   Fire 5 rapid consecutive orders. Exceeds frequency limit (4 req/60s).
                 </p>
@@ -469,11 +605,15 @@ export default function App() {
             <div className={`p-4 rounded-xl border flex flex-col md:flex-row items-start md:items-center justify-between gap-4 transition ${
               lastResult.decision === 'ALLOW'
                 ? 'bg-emerald-950/40 border-emerald-600/40 text-emerald-200'
+                : lastResult.decision === 'REVIEW'
+                ? 'bg-amber-950/40 border-amber-600/40 text-amber-200'
                 : 'bg-rose-950/40 border-rose-600/40 text-rose-200'
             }`}>
               <div className="flex items-center gap-3">
                 {lastResult.decision === 'ALLOW' ? (
                   <ShieldCheck className="w-6 h-6 text-emerald-400 shrink-0" />
+                ) : lastResult.decision === 'REVIEW' ? (
+                  <UserCheck className="w-6 h-6 text-amber-400 shrink-0" />
                 ) : (
                   <ShieldAlert className="w-6 h-6 text-rose-400 shrink-0" />
                 )}
@@ -485,6 +625,11 @@ export default function App() {
                     <span className="text-xs px-2 py-0.5 rounded bg-slate-900 border border-slate-700 font-mono">
                       Risk Level: {lastResult.risk_level || (lastResult.risk_score > 0.5 ? 'CRITICAL' : 'LOW')} ({lastResult.risk_score ?? 0})
                     </span>
+                    {lastResult.approval_id && (
+                      <span className="text-xs text-amber-300 font-mono bg-amber-950/60 px-2 py-0.5 rounded border border-amber-800">
+                        Held for Review: {lastResult.approval_id}
+                      </span>
+                    )}
                     {lastResult.transaction_id && (
                       <span className="text-xs text-slate-400 font-mono">
                         {lastResult.transaction_id}
@@ -560,6 +705,8 @@ export default function App() {
                           className={`px-2 py-0.5 rounded text-[11px] font-bold ${
                             event.decision === 'ALLOW'
                               ? 'bg-emerald-950 text-emerald-400 border border-emerald-800'
+                              : event.decision === 'REVIEW'
+                              ? 'bg-amber-950 text-amber-400 border border-amber-800'
                               : 'bg-rose-950 text-rose-400 border border-rose-800'
                           }`}
                         >
@@ -712,7 +859,13 @@ export default function App() {
               <div className="grid grid-cols-2 gap-3 bg-slate-950 p-3 rounded-lg border border-slate-800">
                 <div>
                   <span className="text-slate-500">Decision:</span>{' '}
-                  <span className={selectedEvent.decision === 'ALLOW' ? 'text-emerald-400 font-bold' : 'text-rose-400 font-bold'}>
+                  <span className={
+                    selectedEvent.decision === 'ALLOW'
+                      ? 'text-emerald-400 font-bold'
+                      : selectedEvent.decision === 'REVIEW'
+                      ? 'text-amber-400 font-bold'
+                      : 'text-rose-400 font-bold'
+                  }>
                     {selectedEvent.decision}
                   </span>
                 </div>

@@ -4,6 +4,12 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
+from app.agentshield.approval import (
+    ApprovalRecord,
+    ApprovalStatus,
+    ApprovalStore,
+    InMemoryApprovalStore,
+)
 from app.agentshield.audit import AuditSink, InMemoryAuditSink
 from app.agentshield.intent import AuthorizedIntent, IntentValidationResult
 from app.agentshield.intent_provider import (
@@ -90,7 +96,7 @@ def _intent_violations(
 class ExecutionResult(BaseModel):
     """A policy decision returned before any provider can be called."""
 
-    decision: Literal["ALLOW", "BLOCK"]
+    decision: Literal["ALLOW", "BLOCK", "REVIEW"]
     session_id: str
     tool_name: str
     risk_score: float = Field(ge=0.0, le=1.0)
@@ -102,6 +108,7 @@ class ExecutionResult(BaseModel):
     provider_result: PaymentResult | None = None
     transaction_id: str | None = None
     transaction_status: TransactionStatus | None = None
+    approval_id: str | None = None
     error: str | None = None
 
 
@@ -116,6 +123,7 @@ class AgentShield:
         audit_sink: AuditSink | None = None,
         intent_provider: IntentProvider | None = None,
         llm_provider: LLMProvider | None = None,
+        approval_store: ApprovalStore | None = None,
     ) -> None:
         if isinstance(policy_or_provider, Policy):
             self._provider: PolicyProvider = InMemoryPolicyProvider(
@@ -132,6 +140,14 @@ class AgentShield:
             intent_provider or InMemoryIntentProvider()
         )
         self._llm_provider = llm_provider
+        self._approval_store: ApprovalStore = (
+            approval_store or InMemoryApprovalStore()
+        )
+
+    @property
+    def approval_store(self) -> ApprovalStore:
+        """Return the configured approval store."""
+        return self._approval_store
 
     @property
     def audit_sink(self) -> AuditSink:
@@ -512,12 +528,68 @@ class AgentShield:
                 transaction_status=TransactionStatus.BLOCKED,
             )
 
-        provider_result: PaymentResult | None = None
-        current_status = TransactionStatus.AUTHORIZED
         risk_result = evaluate_risk(
             intent_validation=intent_validation,
             semantic_validation=semantic_validation,
         )
+
+        # Check if human operator approval is required
+        needs_review = policy.require_human_approval or (
+            policy.require_approval_above is not None
+            and amount is not None
+            and amount > policy.require_approval_above
+        )
+
+        if needs_review:
+            # Transition transaction to PENDING (spend remains reserved)
+            self._transaction_store.update_status(
+                txn.transaction_id, status=TransactionStatus.PENDING
+            )
+            reasons = list(risk_result.reasons)
+            if "REQUIRES_HUMAN_APPROVAL" not in reasons:
+                reasons.append("REQUIRES_HUMAN_APPROVAL")
+
+            appr = self._approval_store.create(
+                transaction_id=txn.transaction_id,
+                session_id=session_id,
+                tool_name=tool_name,
+                amount=amount,
+                currency=currency,
+                arguments=arguments,
+                risk_score=risk_result.risk_score,
+                risk_level="MEDIUM" if risk_result.risk_level == "LOW" else risk_result.risk_level,
+                reasons=reasons,
+            )
+
+            self._audit_sink.create_and_record(
+                transaction_id=txn.transaction_id,
+                transaction_status=TransactionStatus.PENDING,
+                session_id=session_id,
+                tool_name=tool_name,
+                arguments=arguments,
+                decision="REVIEW",
+                risk_score=risk_result.risk_score,
+                risk_level="MEDIUM" if risk_result.risk_level == "LOW" else risk_result.risk_level,
+                reasons=reasons,
+                semantic_validation=semantic_validation,
+            )
+
+            return ExecutionResult(
+                decision="REVIEW",
+                session_id=session_id,
+                tool_name=tool_name,
+                risk_score=risk_result.risk_score,
+                risk_level="MEDIUM" if risk_result.risk_level == "LOW" else risk_result.risk_level,
+                reasons=reasons,
+                intent_validation=intent_validation,
+                semantic_validation=semantic_validation,
+                transaction_id=txn.transaction_id,
+                transaction_status=TransactionStatus.PENDING,
+                approval_id=appr.approval_id,
+            )
+
+        provider_result: PaymentResult | None = None
+        current_status = TransactionStatus.AUTHORIZED
 
         if self._payment_provider is not None:
             try:
@@ -679,4 +751,157 @@ class AgentShield:
             error=error,
             transaction_id=txn.transaction_id,
             transaction_status=TransactionStatus.BLOCKED,
+        )
+
+    def approve_transaction(
+        self,
+        approval_id: str,
+        *,
+        reviewed_by: str | None = None,
+        review_notes: str | None = None,
+    ) -> ExecutionResult:
+        """Authorize an in-flight review request and dispatch to payment provider."""
+        appr = self._approval_store.get(approval_id)
+        if appr is None:
+            raise ValueError(f"Approval '{approval_id}' not found")
+        if appr.status != ApprovalStatus.PENDING:
+            raise ValueError(f"Approval '{approval_id}' is already {appr.status.value}")
+
+        txn = self._transaction_store.get(appr.transaction_id)
+        if txn is None or txn.status != TransactionStatus.PENDING:
+            raise ValueError(f"Transaction for approval '{approval_id}' is not in PENDING status")
+
+        # 1. Update approval record to APPROVED
+        self._approval_store.update_status(
+            approval_id,
+            status=ApprovalStatus.APPROVED,
+            reviewed_by=reviewed_by,
+            review_notes=review_notes,
+        )
+
+        # 2. Transition transaction to AUTHORIZED
+        self._transaction_store.update_status(
+            txn.transaction_id, status=TransactionStatus.AUTHORIZED
+        )
+
+        # 3. Dispatch to payment provider
+        provider_result: PaymentResult | None = None
+        error_msg: str | None = None
+        if self._payment_provider is not None:
+            provider_order_id: str | None = None
+            try:
+                receipt = str(txn.arguments.get("receipt") or txn.transaction_id)[:40]
+                notes = txn.arguments.get("notes")
+                provider_result = self._payment_provider.create_order(
+                    amount=txn.amount or 0,
+                    currency=txn.currency,
+                    receipt=receipt,
+                    notes=dict(notes) if isinstance(notes, dict) else {"approval_id": approval_id},
+                )
+                if provider_result.order is not None:
+                    provider_order_id = provider_result.order.id
+
+                self._transaction_store.update_status(
+                    txn.transaction_id,
+                    status=TransactionStatus.SUCCEEDED,
+                    provider_order_id=provider_order_id,
+                )
+            except Exception as exc:
+                error_msg = str(exc)
+                self._transaction_store.update_status(
+                    txn.transaction_id,
+                    status=TransactionStatus.FAILED,
+                    error=error_msg,
+                )
+        else:
+            self._transaction_store.update_status(
+                txn.transaction_id, status=TransactionStatus.SUCCEEDED
+            )
+
+        # 4. Record audit event
+        self._audit_sink.create_and_record(
+            transaction_id=txn.transaction_id,
+            transaction_status=TransactionStatus.SUCCEEDED if error_msg is None else TransactionStatus.FAILED,
+            session_id=txn.session_id,
+            tool_name=txn.tool_name,
+            arguments=txn.arguments,
+            decision="ALLOW",
+            risk_score=appr.risk_score,
+            risk_level=appr.risk_level,
+            reasons=["HUMAN_APPROVED"],
+            provider_name=self._get_provider_name(),
+            provider_result=provider_result,
+        )
+
+        return ExecutionResult(
+            decision="ALLOW",
+            session_id=txn.session_id,
+            tool_name=txn.tool_name,
+            risk_score=appr.risk_score,
+            risk_level=appr.risk_level,
+            reasons=["HUMAN_APPROVED"],
+            provider_result=provider_result,
+            transaction_id=txn.transaction_id,
+            transaction_status=TransactionStatus.SUCCEEDED if error_msg is None else TransactionStatus.FAILED,
+            approval_id=approval_id,
+            error=error_msg,
+        )
+
+    def reject_transaction(
+        self,
+        approval_id: str,
+        *,
+        reviewed_by: str | None = None,
+        review_notes: str | None = None,
+    ) -> ExecutionResult:
+        """Reject an in-flight review request and release reserved spend."""
+        appr = self._approval_store.get(approval_id)
+        if appr is None:
+            raise ValueError(f"Approval '{approval_id}' not found")
+        if appr.status != ApprovalStatus.PENDING:
+            raise ValueError(f"Approval '{approval_id}' is already {appr.status.value}")
+
+        txn = self._transaction_store.get(appr.transaction_id)
+        if txn is None:
+            raise ValueError(f"Transaction for approval '{approval_id}' not found")
+
+        # 1. Update approval record to REJECTED
+        self._approval_store.update_status(
+            approval_id,
+            status=ApprovalStatus.REJECTED,
+            reviewed_by=reviewed_by,
+            review_notes=review_notes,
+        )
+
+        # 2. Transition transaction to CANCELLED (releases reserved spend)
+        self._transaction_store.update_status(
+            txn.transaction_id,
+            status=TransactionStatus.CANCELLED,
+            error="REJECTED_BY_HUMAN_OPERATOR",
+        )
+
+        # 3. Record audit event
+        self._audit_sink.create_and_record(
+            transaction_id=txn.transaction_id,
+            transaction_status=TransactionStatus.CANCELLED,
+            session_id=txn.session_id,
+            tool_name=txn.tool_name,
+            arguments=txn.arguments,
+            decision="BLOCK",
+            risk_score=appr.risk_score,
+            risk_level=appr.risk_level,
+            reasons=["HUMAN_REJECTED"],
+        )
+
+        return ExecutionResult(
+            decision="BLOCK",
+            session_id=txn.session_id,
+            tool_name=txn.tool_name,
+            risk_score=appr.risk_score,
+            risk_level=appr.risk_level,
+            reasons=["HUMAN_REJECTED"],
+            transaction_id=txn.transaction_id,
+            transaction_status=TransactionStatus.CANCELLED,
+            approval_id=approval_id,
+            error="Rejected by human operator",
         )

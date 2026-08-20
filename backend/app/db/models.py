@@ -3,6 +3,7 @@
 from datetime import datetime, timezone
 from sqlalchemy import (
     JSON,
+    Boolean,
     DateTime,
     Float,
     ForeignKey,
@@ -65,6 +66,12 @@ class PolicyModel(Base):
     )
     max_spend_per_window: Mapped[int | None] = mapped_column(
         Integer, nullable=True
+    )
+    require_approval_above: Mapped[int | None] = mapped_column(
+        Integer, nullable=True
+    )
+    require_human_approval: Mapped[bool] = mapped_column(
+        Boolean, default=False, nullable=False
     )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=_utc_now
@@ -174,4 +181,47 @@ class AuditEventModel(Base):
     provider_result: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     timestamp: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=_utc_now, index=True
+    )
+
+
+class ApprovalModel(Base):
+    """Represents a human authorization review request."""
+
+    __tablename__ = "approvals"
+
+    id: Mapped[int] = mapped_column(
+        Integer, primary_key=True, autoincrement=True
+    )
+    approval_id: Mapped[str] = mapped_column(
+        String(128), unique=True, index=True, nullable=False
+    )
+    transaction_id: Mapped[str] = mapped_column(
+        String(128),
+        ForeignKey("transactions.transaction_id", ondelete="CASCADE"),
+        index=True,
+        nullable=False,
+    )
+    session_id: Mapped[str] = mapped_column(
+        String(128),
+        ForeignKey("sessions.session_id", ondelete="CASCADE"),
+        index=True,
+        nullable=False,
+    )
+    status: Mapped[str] = mapped_column(
+        String(32), default="PENDING", index=True, nullable=False
+    )
+    tool_name: Mapped[str] = mapped_column(String(64), nullable=False)
+    amount: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    currency: Mapped[str] = mapped_column(String(16), default="INR")
+    arguments: Mapped[dict] = mapped_column(JSON, default=dict)
+    risk_score: Mapped[float] = mapped_column(Float, default=0.0)
+    risk_level: Mapped[str] = mapped_column(String(16), default="MEDIUM")
+    reasons: Mapped[list] = mapped_column(JSON, default=list)
+    reviewed_by: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    review_notes: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=_utc_now, index=True
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=_utc_now, onupdate=_utc_now
     )

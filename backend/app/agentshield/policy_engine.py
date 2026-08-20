@@ -14,6 +14,8 @@ class Policy(BaseModel):
     max_requests_per_window: int | None = Field(default=None, ge=1)
     window_seconds: int = Field(default=60, ge=1)
     max_spend_per_window: int | None = Field(default=None, ge=0)
+    require_approval_above: int | None = Field(default=None, ge=0)
+    require_human_approval: bool = Field(default=False)
 
 
 class PolicyViolation(BaseModel):

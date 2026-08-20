@@ -66,6 +66,24 @@ export interface Transaction {
   updated_at: string;
 }
 
+export interface ApprovalRecord {
+  approval_id: string;
+  transaction_id: string;
+  session_id: string;
+  status: 'PENDING' | 'APPROVED' | 'REJECTED' | 'EXPIRED';
+  tool_name: string;
+  amount?: number | null;
+  currency: string;
+  arguments: Record<string, any>;
+  risk_score: number;
+  risk_level: string;
+  reasons: string[];
+  reviewed_by?: string | null;
+  review_notes?: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
 export interface SessionData {
   session_id: string;
   status: string;
@@ -76,6 +94,8 @@ export interface SessionData {
     max_requests_per_window?: number | null;
     window_seconds: number;
     max_spend_per_window?: number | null;
+    require_approval_above?: number | null;
+    require_human_approval?: boolean;
   } | null;
   intent?: {
     category?: string | null;

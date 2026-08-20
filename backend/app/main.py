@@ -2,6 +2,7 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
 
+from app.api.v1.approvals import router as approvals_router
 from app.api.v1.audit import router as audit_router
 from app.api.v1.sessions import router as sessions_router
 from app.api.v1.tools import router as tools_router
@@ -30,6 +31,7 @@ app.include_router(tools_router, prefix="/api/v1")
 app.include_router(sessions_router, prefix="/api/v1")
 app.include_router(audit_router, prefix="/api/v1")
 app.include_router(transactions_router, prefix="/api/v1")
+app.include_router(approvals_router, prefix="/api/v1")
 
 
 @app.get("/health")

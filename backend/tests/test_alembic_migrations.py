@@ -25,12 +25,15 @@ def test_alembic_migrations_upgrade_and_downgrade(tmp_path) -> None:
     assert "authorized_intents" in tables
     assert "transactions" in tables
     assert "audit_events" in tables
+    assert "approvals" in tables
 
     # Verify columns in policies
     policy_cols = {c["name"] for c in inspector.get_columns("policies")}
     assert "max_requests_per_window" in policy_cols
     assert "window_seconds" in policy_cols
     assert "max_spend_per_window" in policy_cols
+    assert "require_approval_above" in policy_cols
+    assert "require_human_approval" in policy_cols
 
     # Verify columns in audit_events
     audit_cols = {c["name"] for c in inspector.get_columns("audit_events")}

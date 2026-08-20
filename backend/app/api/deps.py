@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 from app.agentshield.executor import AgentShield
 from app.db.session import get_db
 from app.db.stores import (
+    SqlAlchemyApprovalStore,
     SqlAlchemyAuditSink,
     SqlAlchemyIntentProvider,
     SqlAlchemyPolicyProvider,
@@ -47,6 +48,7 @@ def get_shield(
     intent_provider = SqlAlchemyIntentProvider(db)
     transaction_store = SqlAlchemyTransactionStore(db)
     audit_sink = SqlAlchemyAuditSink(db)
+    approval_store = SqlAlchemyApprovalStore(db)
 
     return AgentShield(
         policy_or_provider=policy_provider,
@@ -55,4 +57,5 @@ def get_shield(
         audit_sink=audit_sink,
         intent_provider=intent_provider,
         llm_provider=llm_provider,
+        approval_store=approval_store,
     )

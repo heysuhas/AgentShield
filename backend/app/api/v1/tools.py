@@ -40,5 +40,6 @@ def execute_tool(
         provider_result=result.provider_result,
         transaction_id=result.transaction_id,
         transaction_status=result.transaction_status,
+        approval_id=result.approval_id,
         error=result.error,
     )

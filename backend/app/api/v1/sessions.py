@@ -31,6 +31,8 @@ def _to_policy_schema(policy: Policy | None) -> PolicySchema | None:
         max_requests_per_window=policy.max_requests_per_window,
         window_seconds=policy.window_seconds,
         max_spend_per_window=policy.max_spend_per_window,
+        require_approval_above=policy.require_approval_above,
+        require_human_approval=policy.require_human_approval,
     )
 
 
@@ -42,6 +44,8 @@ def _to_policy(schema: PolicySchema) -> Policy:
         max_requests_per_window=schema.max_requests_per_window,
         window_seconds=schema.window_seconds,
         max_spend_per_window=schema.max_spend_per_window,
+        require_approval_above=schema.require_approval_above,
+        require_human_approval=schema.require_human_approval,
     )
 
 
