@@ -6,6 +6,7 @@ from typing import Any, Literal, Protocol, runtime_checkable
 from pydantic import BaseModel, ConfigDict, Field
 
 from app.agentshield.policy_engine import PolicyViolation
+from app.agentshield.transaction import TransactionStatus
 from app.providers.payments.base import PaymentResult
 
 
@@ -16,6 +17,7 @@ class AuditEvent(BaseModel):
 
     event_id: str
     transaction_id: str | None = None
+    transaction_status: TransactionStatus | None = None
     session_id: str
     tool_name: str
     arguments: dict[str, Any] = Field(default_factory=dict)
@@ -38,6 +40,7 @@ class AuditSink(Protocol):
         self,
         *,
         transaction_id: str | None = None,
+        transaction_status: TransactionStatus | None = None,
         session_id: str,
         tool_name: str,
         arguments: dict[str, Any] | None = None,
@@ -79,6 +82,7 @@ class InMemoryAuditSink:
         self,
         *,
         transaction_id: str | None = None,
+        transaction_status: TransactionStatus | None = None,
         session_id: str,
         tool_name: str,
         arguments: dict[str, Any] | None = None,
@@ -95,6 +99,7 @@ class InMemoryAuditSink:
         event = AuditEvent(
             event_id=event_id,
             transaction_id=transaction_id,
+            transaction_status=transaction_status,
             session_id=session_id,
             tool_name=tool_name,
             arguments=arguments or {},

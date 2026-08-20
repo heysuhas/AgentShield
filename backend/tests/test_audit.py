@@ -80,6 +80,7 @@ def test_executor_records_audit_event_on_allow() -> None:
     event = events[0]
     assert event.event_id == "evt_000001"
     assert event.transaction_id == result.transaction_id
+    assert event.transaction_status == "SUCCEEDED"
     assert event.session_id == "session_123"
     assert event.tool_name == "create_order"
     assert event.decision == "ALLOW"
@@ -115,6 +116,7 @@ def test_executor_records_audit_event_on_block() -> None:
     event = events[0]
     assert event.event_id == "evt_000001"
     assert event.transaction_id == result.transaction_id
+    assert event.transaction_status == "BLOCKED"
     assert event.session_id == "session_123"
     assert event.tool_name == "create_payout"
     assert event.decision == "BLOCK"

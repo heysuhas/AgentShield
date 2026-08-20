@@ -69,6 +69,16 @@ class AgentShield:
         """Return the configured audit sink."""
         return self._audit_sink
 
+    @property
+    def policy_provider(self) -> PolicyProvider:
+        """Return the configured policy provider."""
+        return self._provider
+
+    @property
+    def transaction_store(self) -> TransactionStore:
+        """Return the configured transaction store."""
+        return self._transaction_store
+
     def get_committed_spend(self, session_id: str) -> int:
         """Return the settled/committed transaction spend for a session."""
         return self._committed_spend.get(session_id, 0)
@@ -279,6 +289,7 @@ class AgentShield:
 
         self._audit_sink.create_and_record(
             transaction_id=txn.transaction_id,
+            transaction_status=current_status,
             session_id=session_id,
             tool_name=tool_name,
             arguments=dict(arguments),
@@ -323,6 +334,7 @@ class AgentShield:
 
         self._audit_sink.create_and_record(
             transaction_id=txn.transaction_id,
+            transaction_status=TransactionStatus.BLOCKED,
             session_id=session_id,
             tool_name=tool_name,
             arguments=dict(arguments),

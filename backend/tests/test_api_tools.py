@@ -1,7 +1,7 @@
 import pytest
 from fastapi.testclient import TestClient
 
-from app.api.v1.tools import _payment_provider, _shield
+from app.api.v1.tools import DEMO_POLICY, _payment_provider, _policy_provider, _shield
 from app.main import app
 
 client = TestClient(app)
@@ -11,9 +11,11 @@ client = TestClient(app)
 def reset_api_shield_state():
     _shield.reset()
     _payment_provider.reset()
+    _policy_provider.set_policy("session_123", DEMO_POLICY)
     yield
     _shield.reset()
     _payment_provider.reset()
+    _policy_provider.set_policy("session_123", DEMO_POLICY)
 
 
 def test_api_execute_allowed_create_order() -> None:

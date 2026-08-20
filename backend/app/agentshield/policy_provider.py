@@ -36,3 +36,15 @@ class InMemoryPolicyProvider:
     def remove_policy(self, session_id: str) -> None:
         """Remove a session-specific policy."""
         self._policies.pop(session_id, None)
+
+    def has_session(self, session_id: str) -> bool:
+        """Check if a session policy is explicitly registered."""
+        return session_id in self._policies
+
+    def list_sessions(self) -> list[str]:
+        """Return list of explicitly registered session IDs."""
+        return list(self._policies.keys())
+
+    def reset(self) -> None:
+        """Clear all registered policies."""
+        self._policies.clear()
