@@ -1,6 +1,9 @@
-from app.agentshield.audit import AuditEvent, AuditSink, InMemoryAuditSink
+import pytest
+from pydantic import ValidationError
+
+from app.agentshield.audit import AuditSink, InMemoryAuditSink
 from app.agentshield.executor import AgentShield
-from app.agentshield.policy_engine import Policy, PolicyViolation
+from app.agentshield.policy_engine import Policy
 from app.providers.payments.mock import MockPaymentProvider
 
 
@@ -40,6 +43,13 @@ def test_in_memory_audit_sink_recording_and_querying() -> None:
 
     # List all
     assert len(sink.list_all()) == 1
+    assert sink.list_all(limit=0) == []
+
+    # Returned events are defensive copies, not mutable storage references.
+    retrieved.arguments["amount"] = 1
+    stored = sink.get("evt_000001")
+    assert stored is not None
+    assert stored.arguments["amount"] == 4500
 
     # Reset
     sink.reset()
@@ -79,6 +89,9 @@ def test_executor_records_audit_event_on_allow() -> None:
     assert event.provider_result.success is True
     assert event.provider_result.order is not None
     assert event.provider_result.order.id == "order_mock_000001"
+
+    with pytest.raises(ValidationError):
+        event.__setattr__("decision", "BLOCK")
 
 
 def test_executor_records_audit_event_on_block() -> None:

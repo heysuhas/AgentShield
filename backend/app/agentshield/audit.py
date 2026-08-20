@@ -3,7 +3,7 @@
 from datetime import datetime, timezone
 from typing import Any, Literal, Protocol, runtime_checkable
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 from app.agentshield.policy_engine import PolicyViolation
 from app.providers.payments.base import PaymentResult
@@ -11,6 +11,8 @@ from app.providers.payments.base import PaymentResult
 
 class AuditEvent(BaseModel):
     """Immutable audit record for an authorized or blocked tool request."""
+
+    model_config = ConfigDict(frozen=True)
 
     event_id: str
     transaction_id: str | None = None
@@ -31,6 +33,23 @@ class AuditEvent(BaseModel):
 @runtime_checkable
 class AuditSink(Protocol):
     """Protocol for recording and querying security audit events."""
+
+    def create_and_record(
+        self,
+        *,
+        transaction_id: str | None = None,
+        session_id: str,
+        tool_name: str,
+        arguments: dict[str, Any] | None = None,
+        decision: Literal["ALLOW", "BLOCK"],
+        risk_score: float,
+        reasons: list[str] | None = None,
+        policy_violations: list[PolicyViolation] | None = None,
+        provider_name: str | None = None,
+        provider_result: PaymentResult | None = None,
+    ) -> AuditEvent:
+        """Create and record an audit event."""
+        ...
 
     def record(self, event: AuditEvent) -> None:
         """Record an audit event."""
@@ -87,24 +106,31 @@ class InMemoryAuditSink:
             provider_result=provider_result,
             timestamp=datetime.now(timezone.utc),
         )
-        self._events.append(event)
-        return event
+        stored_event = event.model_copy(deep=True)
+        self._events.append(stored_event)
+        return stored_event.model_copy(deep=True)
 
     def record(self, event: AuditEvent) -> None:
         """Append an existing audit event."""
-        self._events.append(event)
+        self._events.append(event.model_copy(deep=True))
 
     def get(self, event_id: str) -> AuditEvent | None:
         for event in self._events:
             if event.event_id == event_id:
-                return event
+                return event.model_copy(deep=True)
         return None
 
     def list_by_session(self, session_id: str) -> list[AuditEvent]:
-        return [e for e in self._events if e.session_id == session_id]
+        return [
+            event.model_copy(deep=True)
+            for event in self._events
+            if event.session_id == session_id
+        ]
 
     def list_all(self, limit: int = 100) -> list[AuditEvent]:
-        return list(self._events[-limit:])
+        if limit <= 0:
+            return []
+        return [event.model_copy(deep=True) for event in self._events[-limit:]]
 
     def reset(self) -> None:
         """Clear all audit events and counter."""
