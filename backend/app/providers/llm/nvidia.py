@@ -29,10 +29,20 @@ def _extract_json_block(text: str) -> dict[str, Any]:
 
     try:
         return json.loads(cleaned)
-    except json.JSONDecodeError as exc:
+    except json.JSONDecodeError:
+        # Models sometimes append a short explanation after a valid JSON object.
+        # Decode exactly the first object and ignore non-JSON trailing text.
+        start = cleaned.find("{")
+        if start >= 0:
+            try:
+                parsed, _ = json.JSONDecoder().raw_decode(cleaned[start:])
+                if isinstance(parsed, dict):
+                    return parsed
+            except json.JSONDecodeError:
+                pass
         raise LLMResponseParsingError(
             f"Failed to decode JSON from LLM response: {text[:200]}"
-        ) from exc
+        )
 
 
 class NvidiaNIMProvider:
@@ -43,12 +53,21 @@ class NvidiaNIMProvider:
         api_key: str | None = None,
         base_url: str = "https://integrate.api.nvidia.com/v1",
         model: str = "meta/llama-3.3-70b-instruct",
+        timeout_seconds: float = 90.0,
         client: httpx.Client | None = None,
     ) -> None:
         self.api_key = api_key
         self.base_url = base_url.rstrip("/")
         self.model = model
-        self._client = client or httpx.Client(timeout=30.0)
+        self.timeout_seconds = timeout_seconds
+        self._client = client or httpx.Client(
+            timeout=httpx.Timeout(
+                connect=10.0,
+                read=timeout_seconds,
+                write=10.0,
+                pool=10.0,
+            )
+        )
 
     def chat_complete(
         self,
@@ -72,6 +91,8 @@ class NvidiaNIMProvider:
             "model": self.model,
             "messages": [m.model_dump() for m in messages],
             "temperature": temperature,
+            "top_p": 0.7,
+            "max_tokens": 512,
         }
         if response_format is not None:
             payload["response_format"] = response_format
@@ -92,12 +113,17 @@ class NvidiaNIMProvider:
 
         data = resp.json()
         try:
-            content = data["choices"][0]["message"]["content"]
+            message = data["choices"][0]["message"]
+            content = message.get("content")
             model_name = data.get("model", self.model)
-        except (KeyError, IndexError) as exc:
+        except (KeyError, IndexError, AttributeError) as exc:
             raise LLMResponseParsingError(
                 f"Unexpected NVIDIA NIM response structure: {data}"
             ) from exc
+        if not isinstance(content, str) or not content.strip():
+            raise LLMResponseParsingError(
+                "NVIDIA NIM returned no assistant content; disable reasoning or choose a non-reasoning model"
+            )
 
         return LLMResponse(
             content=content,
@@ -132,6 +158,7 @@ class NvidiaNIMProvider:
                 LLMMessage(role="system", content=system_prompt),
                 LLMMessage(role="user", content=user_content),
             ],
+            response_format={"type": "json_object"},
             temperature=0.0,
         )
 
@@ -212,6 +239,7 @@ class NvidiaNIMProvider:
                 LLMMessage(role="system", content=system_prompt),
                 LLMMessage(role="user", content=user_content),
             ],
+            response_format={"type": "json_object"},
             temperature=0.0,
         )
 

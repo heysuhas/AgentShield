@@ -1,6 +1,7 @@
 """Application configuration and environment settings."""
 
 from functools import lru_cache
+from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -17,11 +18,13 @@ class Settings(BaseSettings):
     ENVIRONMENT: str = "development"
     PROJECT_NAME: str = "AgentShield"
     API_V1_STR: str = "/api/v1"
+    MIGRATE_ON_STARTUP: bool = True
 
     # NVIDIA NIM Configuration
     NVIDIA_API_KEY: str | None = None
     NVIDIA_BASE_URL: str = "https://integrate.api.nvidia.com/v1"
-    NVIDIA_MODEL: str = "meta/llama-3.3-70b-instruct"
+    NVIDIA_MODEL: str = "meta/llama-3.1-8b-instruct"
+    NVIDIA_TIMEOUT_SECONDS: float = Field(default=90.0, gt=0)
 
     # Payment Provider Configuration
     PAYMENT_PROVIDER: str = "mock"  # "mock" | "razorpay"
