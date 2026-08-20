@@ -12,11 +12,17 @@ from app.agentshield.policy_engine import (
 from app.agentshield.policy_provider import InMemoryPolicyProvider, PolicyProvider
 from app.agentshield.transaction import (
     InMemoryTransactionStore,
-    TransactionRecord,
     TransactionStatus,
     TransactionStore,
 )
-from app.providers.payments.base import PaymentProvider, PaymentResult
+from app.providers.payments.base import (
+    PaymentProvider,
+    PaymentProviderError,
+    PaymentResult,
+)
+
+
+_SUPPORTED_PROVIDER_TOOLS = frozenset({"create_order", "fetch_order"})
 
 
 class ExecutionResult(BaseModel):
@@ -78,7 +84,7 @@ class AgentShield:
         """Reset all in-memory spend and transaction store state."""
         self._committed_spend.clear()
         self._reserved_spend.clear()
-        if hasattr(self._transaction_store, "reset"):
+        if isinstance(self._transaction_store, InMemoryTransactionStore):
             self._transaction_store.reset()
 
     def execute_tool(
@@ -141,6 +147,23 @@ class AgentShield:
                 violations=policy_decision.violations,
             )
 
+        if (
+            self._payment_provider is not None
+            and tool_name not in _SUPPORTED_PROVIDER_TOOLS
+        ):
+            violation = PolicyViolation(
+                rule="PROVIDER_TOOL_UNSUPPORTED",
+                actual=tool_name,
+                limit=", ".join(sorted(_SUPPORTED_PROVIDER_TOOLS)),
+            )
+            return self._record_and_block(
+                session_id=session_id,
+                tool_name=tool_name,
+                arguments=arguments,
+                amount=raw_amount,
+                violations=[violation],
+            )
+
         # 1. Authorize and create transaction record in AUTHORIZED status
         currency = str(arguments.get("currency", "INR"))
         txn = self._transaction_store.create(
@@ -163,19 +186,33 @@ class AgentShield:
         current_status = TransactionStatus.AUTHORIZED
 
         if self._payment_provider is not None:
-            if tool_name == "create_order":
-                receipt = arguments.get("receipt")
-                notes = arguments.get("notes")
-                provider_result = self._payment_provider.create_order(
-                    amount=raw_amount if isinstance(raw_amount, int) else 0,
-                    currency=currency,
-                    receipt=str(receipt) if receipt is not None else None,
-                    notes=dict(notes) if isinstance(notes, dict) else None,
+            try:
+                if tool_name == "create_order":
+                    receipt = arguments.get("receipt")
+                    notes = arguments.get("notes")
+                    provider_result = self._payment_provider.create_order(
+                        amount=raw_amount if isinstance(raw_amount, int) else 0,
+                        currency=currency,
+                        receipt=str(receipt) if receipt is not None else None,
+                        notes=dict(notes) if isinstance(notes, dict) else None,
+                    )
+                elif tool_name == "fetch_order":
+                    order_id = str(arguments.get("order_id", ""))
+                    provider_result = self._payment_provider.fetch_order(
+                        order_id=order_id
+                    )
+            except PaymentProviderError as exc:
+                provider_result = PaymentResult(
+                    success=False,
+                    error="Payment provider operation failed",
+                    raw_response={"error": str(exc)},
                 )
-            elif tool_name == "fetch_order":
-                order_id = str(arguments.get("order_id", ""))
-                provider_result = self._payment_provider.fetch_order(
-                    order_id=order_id
+            except Exception:
+                # The financial boundary must fail closed for unexpected provider errors.
+                provider_result = PaymentResult(
+                    success=False,
+                    error="Payment provider operation failed",
+                    raw_response={"error": "PROVIDER_ERROR"},
                 )
 
             if provider_result is not None and provider_result.success:

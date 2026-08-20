@@ -2,6 +2,9 @@ import pytest
 
 from app.agentshield.executor import AgentShield
 from app.agentshield.policy_engine import Policy
+from app.agentshield.transaction import TransactionStatus
+from app.providers.payments.base import PaymentNetworkError
+from app.providers.payments.mock import MockPaymentProvider
 
 
 @pytest.fixture
@@ -169,6 +172,53 @@ def test_executor_tracks_and_enforces_aggregate_session_spending() -> None:
     )
     assert r5.decision == "BLOCK"
     assert r5.reasons == ["MAX_SESSION_SPEND"]
+
+
+def test_executor_blocks_policy_allowed_tool_unsupported_by_provider() -> None:
+    provider = MockPaymentProvider()
+    shield = AgentShield(
+        Policy(allowed_tools=frozenset({"refund_payment"})),
+        payment_provider=provider,
+    )
+
+    result = shield.execute_tool(
+        session_id="s1",
+        tool_name="refund_payment",
+        arguments={"amount": 100},
+    )
+
+    assert result.decision == "BLOCK"
+    assert result.reasons == ["PROVIDER_TOOL_UNSUPPORTED"]
+    assert result.provider_result is None
+    assert provider.fetch_order(order_id="order_mock_000001").success is False
+
+
+def test_executor_releases_reservation_when_provider_raises() -> None:
+    class RaisingProvider(MockPaymentProvider):
+        def create_order(self, **kwargs):
+            raise PaymentNetworkError("network unavailable")
+
+    shield = AgentShield(
+        Policy(
+            allowed_tools=frozenset({"create_order"}),
+            max_session_spend=1_000,
+        ),
+        payment_provider=RaisingProvider(),
+    )
+
+    result = shield.execute_tool(
+        session_id="s1",
+        tool_name="create_order",
+        arguments={"amount": 400},
+    )
+
+    assert result.decision == "ALLOW"
+    assert result.transaction_status == TransactionStatus.FAILED
+    assert result.provider_result is not None
+    assert result.provider_result.success is False
+    assert result.provider_result.error == "Payment provider operation failed"
+    assert shield.get_reserved_spend("s1") == 0
+    assert shield.get_committed_spend("s1") == 0
 
 
 def test_executor_invokes_payment_provider_on_allowed_action() -> None:
