@@ -32,10 +32,13 @@ def execute_tool(
         session_id=result.session_id,
         tool_name=result.tool_name,
         risk_score=result.risk_score,
+        risk_level=result.risk_level,
         reasons=result.reasons,
         policy_violations=result.policy_violations,
         intent_validation=result.intent_validation,
+        semantic_validation=result.semantic_validation,
         provider_result=result.provider_result,
         transaction_id=result.transaction_id,
         transaction_status=result.transaction_status,
+        error=result.error,
     )

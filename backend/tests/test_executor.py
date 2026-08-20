@@ -1,6 +1,8 @@
 import pytest
 
 from app.agentshield.executor import AgentShield
+from app.agentshield.intent import AuthorizedIntent, IntentValidationResult
+from app.agentshield.intent_provider import InMemoryIntentProvider
 from app.agentshield.policy_engine import Policy
 from app.agentshield.transaction import TransactionStatus
 from app.providers.payments.base import PaymentNetworkError
@@ -28,6 +30,8 @@ def test_executor_allows_request_without_executing_a_provider(shield) -> None:
     assert result.session_id == "session_123"
     assert result.tool_name == "create_order"
     assert result.reasons == []
+    assert result.risk_score == 0.0
+    assert result.risk_level == "LOW"
     assert result.policy_violations == []
 
 
@@ -39,6 +43,8 @@ def test_executor_blocks_disallowed_tool(shield) -> None:
     )
 
     assert result.decision == "BLOCK"
+    assert result.risk_score == 1.0
+    assert result.risk_level == "CRITICAL"
     assert result.reasons == ["TOOL_NOT_ALLOWED"]
 
 

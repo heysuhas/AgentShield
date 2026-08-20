@@ -19,11 +19,14 @@ from app.agentshield.policy_engine import (
     evaluate_policy,
 )
 from app.agentshield.policy_provider import InMemoryPolicyProvider, PolicyProvider
+from app.agentshield.risk_engine import RiskResult, evaluate_risk
 from app.agentshield.transaction import (
     InMemoryTransactionStore,
+    TransactionRecord,
     TransactionStatus,
     TransactionStore,
 )
+from app.providers.llm.base import LLMProvider, LLMProviderError
 from app.providers.payments.base import (
     PaymentProvider,
     PaymentProviderError,
@@ -90,12 +93,15 @@ class ExecutionResult(BaseModel):
     session_id: str
     tool_name: str
     risk_score: float = Field(ge=0.0, le=1.0)
+    risk_level: Literal["LOW", "MEDIUM", "HIGH", "CRITICAL"] = "LOW"
     reasons: list[str] = Field(default_factory=list)
     policy_violations: list[PolicyViolation] = Field(default_factory=list)
     intent_validation: IntentValidationResult | None = None
+    semantic_validation: IntentValidationResult | None = None
     provider_result: PaymentResult | None = None
     transaction_id: str | None = None
     transaction_status: TransactionStatus | None = None
+    error: str | None = None
 
 
 class AgentShield:
@@ -108,6 +114,7 @@ class AgentShield:
         transaction_store: TransactionStore | None = None,
         audit_sink: AuditSink | None = None,
         intent_provider: IntentProvider | None = None,
+        llm_provider: LLMProvider | None = None,
     ) -> None:
         if isinstance(policy_or_provider, Policy):
             self._provider: PolicyProvider = InMemoryPolicyProvider(
@@ -123,6 +130,7 @@ class AgentShield:
         self._intent_provider: IntentProvider = (
             intent_provider or InMemoryIntentProvider()
         )
+        self._llm_provider = llm_provider
 
     @property
     def audit_sink(self) -> AuditSink:
@@ -175,47 +183,105 @@ class AgentShield:
     def reconcile_stale_reservations(
         self, max_age_seconds: int = 300
     ) -> list[TransactionRecord]:
-        """Reconcile and recover stale in-flight AUTHORIZED reservations against provider state."""
-        expired = self._transaction_store.expire_stale_reservations(
+        """Reconcile stale reservations without losing provider state or spend accuracy."""
+        stale = self._transaction_store.list_stale_reservations(
             max_age_seconds=max_age_seconds
         )
         reconciled: list[TransactionRecord] = []
-        for txn in expired:
-            if txn.provider_order_id and self._payment_provider:
+
+        for txn in stale:
+            pending = self._transaction_store.update_status(
+                txn.transaction_id,
+                status=TransactionStatus.PENDING,
+                error="RECONCILIATION_IN_PROGRESS",
+            )
+            if pending is None:
+                continue
+
+            if txn.provider_order_id and self._payment_provider is not None:
                 try:
                     fetch_res = self._payment_provider.fetch_order(
                         order_id=txn.provider_order_id
                     )
-                    if fetch_res.success and fetch_res.order:
-                        if fetch_res.order.status in ("paid", "created", "attempted"):
+                except Exception:
+                    fetch_res = None
+
+                if fetch_res is not None and fetch_res.success and fetch_res.order:
+                    provider_status = fetch_res.order.status.lower()
+                    if provider_status == "paid":
+                        settled = self._transaction_store.update_status(
+                            txn.transaction_id,
+                            status=TransactionStatus.SUCCEEDED,
+                            provider_order_id=txn.provider_order_id,
+                        )
+                        if settled is not None:
                             self._audit_sink.create_and_record(
-                                transaction_id=txn.transaction_id,
+                                transaction_id=settled.transaction_id,
                                 transaction_status=TransactionStatus.SUCCEEDED,
-                                session_id=txn.session_id,
-                                tool_name=txn.tool_name,
-                                arguments=txn.arguments,
+                                session_id=settled.session_id,
+                                tool_name=settled.tool_name,
+                                arguments=settled.arguments,
                                 decision="ALLOW",
                                 risk_score=0.1,
                                 reasons=["RECONCILED_FROM_PROVIDER"],
                                 provider_name=self._get_provider_name(),
                                 provider_result=fetch_res,
                             )
-                            reconciled.append(txn)
-                            continue
-                except Exception:
-                    pass
+                            reconciled.append(settled)
+                        continue
 
-            self._audit_sink.create_and_record(
-                transaction_id=txn.transaction_id,
-                transaction_status=TransactionStatus.CANCELLED,
-                session_id=txn.session_id,
-                tool_name=txn.tool_name,
-                arguments=txn.arguments,
-                decision="BLOCK",
-                risk_score=0.5,
-                reasons=["RESERVATION_EXPIRED"],
+                    # An existing but unpaid order remains retryable and must
+                    # not consume committed spend yet.
+                    self._audit_sink.create_and_record(
+                        transaction_id=pending.transaction_id,
+                        transaction_status=TransactionStatus.PENDING,
+                        session_id=pending.session_id,
+                        tool_name=pending.tool_name,
+                        arguments=pending.arguments,
+                        decision="BLOCK",
+                        risk_score=0.5,
+                        reasons=["PROVIDER_ORDER_PENDING"],
+                        provider_name=self._get_provider_name(),
+                        provider_result=fetch_res,
+                    )
+                    reconciled.append(pending)
+                    continue
+
+                # Provider lookup failed or returned no confirmed order. Keep
+                # the transaction pending so a later reconciliation can retry.
+                self._audit_sink.create_and_record(
+                    transaction_id=pending.transaction_id,
+                    transaction_status=TransactionStatus.PENDING,
+                    session_id=pending.session_id,
+                    tool_name=pending.tool_name,
+                    arguments=pending.arguments,
+                    decision="BLOCK",
+                    risk_score=0.5,
+                    reasons=["PROVIDER_LOOKUP_PENDING"],
+                    provider_name=self._get_provider_name(),
+                    provider_result=fetch_res,
+                )
+                reconciled.append(pending)
+                continue
+
+            cancelled = self._transaction_store.update_status(
+                txn.transaction_id,
+                status=TransactionStatus.CANCELLED,
+                error="RESERVATION_EXPIRED",
             )
-            reconciled.append(txn)
+            if cancelled is not None:
+                self._audit_sink.create_and_record(
+                    transaction_id=cancelled.transaction_id,
+                    transaction_status=TransactionStatus.CANCELLED,
+                    session_id=cancelled.session_id,
+                    tool_name=cancelled.tool_name,
+                    arguments=cancelled.arguments,
+                    decision="BLOCK",
+                    risk_score=0.5,
+                    reasons=["RESERVATION_EXPIRED"],
+                )
+                reconciled.append(cancelled)
+
         return reconciled
 
     def _get_provider_name(self) -> str | None:
@@ -248,9 +314,14 @@ class AgentShield:
             )
 
         raw_amount = arguments.get("amount")
+        amount: int | None = (
+            raw_amount
+            if isinstance(raw_amount, int) and not isinstance(raw_amount, bool)
+            else None
+        )
         if (
             "amount" in arguments
-            and (isinstance(raw_amount, bool) or not isinstance(raw_amount, int) or raw_amount <= 0)
+            and (amount is None or amount <= 0)
         ) or (tool_name == "create_order" and "amount" not in arguments):
             violation = PolicyViolation(
                 rule="INVALID_AMOUNT",
@@ -270,7 +341,7 @@ class AgentShield:
         policy_decision = evaluate_policy(
             policy,
             tool_name=tool_name,
-            amount=raw_amount,
+            amount=amount,
             current_session_spend=active_spend,
         )
         if not policy_decision.allowed:
@@ -278,7 +349,7 @@ class AgentShield:
                 session_id=session_id,
                 tool_name=tool_name,
                 arguments=arguments,
-                amount=raw_amount,
+                amount=amount,
                 violations=policy_decision.violations,
             )
 
@@ -295,13 +366,14 @@ class AgentShield:
                 session_id=session_id,
                 tool_name=tool_name,
                 arguments=arguments,
-                amount=raw_amount,
+                amount=amount,
                 violations=[violation],
             )
 
         # 2. Intent validation check
         intent = self._intent_provider.get_intent(session_id)
         intent_validation: IntentValidationResult | None = None
+        semantic_validation: IntentValidationResult | None = None
         if intent is not None:
             intent_validation = validate_intent_deterministically(
                 intent,
@@ -319,18 +391,72 @@ class AgentShield:
                     session_id=session_id,
                     tool_name=tool_name,
                     arguments=arguments,
-                    amount=raw_amount,
+                    amount=amount,
                     violations=violations,
-                    risk_score=0.95,
                     intent_validation=intent_validation,
                 )
+
+            if self._llm_provider is not None:
+                try:
+                    semantic_validation = self._llm_provider.compare_semantic_intent(
+                        intent,
+                        tool_name=tool_name,
+                        arguments=dict(arguments),
+                    )
+                except LLMProviderError as exc:
+                    violation = PolicyViolation(
+                        rule="SEMANTIC_VALIDATION_UNAVAILABLE",
+                        actual=str(exc),
+                        limit="valid semantic evidence",
+                    )
+                    return self._record_and_block(
+                        session_id=session_id,
+                        tool_name=tool_name,
+                        arguments=arguments,
+                        amount=amount,
+                        violations=[violation],
+                        intent_validation=intent_validation,
+                        error="Semantic validation unavailable",
+                    )
+                except Exception:
+                    violation = PolicyViolation(
+                        rule="SEMANTIC_VALIDATION_UNAVAILABLE",
+                        actual="LLM provider error",
+                        limit="valid semantic evidence",
+                    )
+                    return self._record_and_block(
+                        session_id=session_id,
+                        tool_name=tool_name,
+                        arguments=arguments,
+                        amount=amount,
+                        violations=[violation],
+                        intent_validation=intent_validation,
+                        error="Semantic validation unavailable",
+                    )
+
+                if not semantic_validation.intent_match:
+                    violations = _intent_violations(
+                        intent,
+                        semantic_validation,
+                        tool_name=tool_name,
+                        arguments=dict(arguments),
+                    )
+                    return self._record_and_block(
+                        session_id=session_id,
+                        tool_name=tool_name,
+                        arguments=arguments,
+                        amount=amount,
+                        violations=violations,
+                        intent_validation=intent_validation,
+                        semantic_validation=semantic_validation,
+                    )
 
         # 1. Authorize and atomically reserve spend against session budget
         currency = str(arguments.get("currency", "INR"))
         txn, is_authorized = self._transaction_store.reserve_and_authorize(
             session_id=session_id,
             tool_name=tool_name,
-            amount=raw_amount,
+            amount=amount,
             currency=currency,
             max_session_spend=policy.max_session_spend,
             arguments=arguments,
@@ -340,9 +466,10 @@ class AgentShield:
             active_spend = self.get_session_spend(session_id)
             violation = PolicyViolation(
                 rule="MAX_SESSION_SPEND",
-                actual=active_spend + (raw_amount or 0),
+                actual=active_spend + (amount or 0),
                 limit=policy.max_session_spend,
             )
+            risk_result = evaluate_risk(policy_violations=[violation])
             self._audit_sink.create_and_record(
                 transaction_id=txn.transaction_id,
                 transaction_status=TransactionStatus.BLOCKED,
@@ -350,16 +477,18 @@ class AgentShield:
                 tool_name=tool_name,
                 arguments=arguments,
                 decision="BLOCK",
-                risk_score=1.0,
-                reasons=["MAX_SESSION_SPEND"],
+                risk_score=risk_result.risk_score,
+                risk_level=risk_result.risk_level,
+                reasons=risk_result.reasons,
                 policy_violations=[violation],
             )
             return ExecutionResult(
                 decision="BLOCK",
                 session_id=session_id,
                 tool_name=tool_name,
-                risk_score=1.0,
-                reasons=["MAX_SESSION_SPEND"],
+                risk_score=risk_result.risk_score,
+                risk_level=risk_result.risk_level,
+                reasons=risk_result.reasons,
                 policy_violations=[violation],
                 intent_validation=intent_validation,
                 transaction_id=txn.transaction_id,
@@ -368,6 +497,10 @@ class AgentShield:
 
         provider_result: PaymentResult | None = None
         current_status = TransactionStatus.AUTHORIZED
+        risk_result = evaluate_risk(
+            intent_validation=intent_validation,
+            semantic_validation=semantic_validation,
+        )
 
         if self._payment_provider is not None:
             try:
@@ -375,7 +508,7 @@ class AgentShield:
                     receipt = arguments.get("receipt") or txn.transaction_id
                     notes = arguments.get("notes")
                     provider_result = self._payment_provider.create_order(
-                        amount=raw_amount if isinstance(raw_amount, int) else 0,
+                        amount=amount or 0,
                         currency=currency,
                         receipt=str(receipt)[:40],
                         notes=dict(notes) if isinstance(notes, dict) else None,
@@ -446,9 +579,11 @@ class AgentShield:
             tool_name=tool_name,
             arguments=dict(arguments),
             decision="ALLOW",
-            risk_score=0.0,
-            reasons=[],
+            risk_score=risk_result.risk_score,
+            risk_level=risk_result.risk_level,
+            reasons=risk_result.reasons,
             policy_violations=[],
+            semantic_validation=semantic_validation,
             provider_name=self._get_provider_name(),
             provider_result=provider_result,
         )
@@ -457,8 +592,11 @@ class AgentShield:
             decision="ALLOW",
             session_id=session_id,
             tool_name=tool_name,
-            risk_score=0.0,
+            risk_score=risk_result.risk_score,
+            risk_level=risk_result.risk_level,
+            reasons=risk_result.reasons,
             intent_validation=intent_validation,
+            semantic_validation=semantic_validation,
             provider_result=provider_result,
             transaction_id=txn.transaction_id,
             transaction_status=current_status,
@@ -472,10 +610,18 @@ class AgentShield:
         arguments: dict[str, object],
         amount: int | None,
         violations: list[PolicyViolation],
-        risk_score: float = 1.0,
+        risk_score: float | None = None,
         intent_validation: IntentValidationResult | None = None,
+        semantic_validation: IntentValidationResult | None = None,
+        risk_result: RiskResult | None = None,
+        error: str | None = None,
     ) -> ExecutionResult:
         reasons = [violation.rule for violation in violations]
+        resolved_risk = risk_result or evaluate_risk(
+            policy_violations=violations,
+            intent_validation=intent_validation,
+            semantic_validation=semantic_validation,
+        )
         txn = self._transaction_store.create(
             session_id=session_id,
             tool_name=tool_name,
@@ -494,9 +640,11 @@ class AgentShield:
             tool_name=tool_name,
             arguments=dict(arguments),
             decision="BLOCK",
-            risk_score=risk_score,
+            risk_score=resolved_risk.risk_score,
+            risk_level=resolved_risk.risk_level,
             reasons=reasons,
             policy_violations=violations,
+            semantic_validation=semantic_validation,
             provider_name=self._get_provider_name(),
             provider_result=None,
         )
@@ -505,10 +653,13 @@ class AgentShield:
             decision="BLOCK",
             session_id=session_id,
             tool_name=tool_name,
-            risk_score=risk_score,
+            risk_score=resolved_risk.risk_score,
+            risk_level=resolved_risk.risk_level,
             reasons=reasons,
             policy_violations=violations,
             intent_validation=intent_validation,
+            semantic_validation=semantic_validation,
+            error=error,
             transaction_id=txn.transaction_id,
             transaction_status=TransactionStatus.BLOCKED,
         )

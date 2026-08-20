@@ -134,6 +134,7 @@ def test_provider_aware_crash_reconciliation() -> None:
     # Create an order directly in provider to simulate pre-crash order creation
     prov_res = provider.create_order(amount=3000)
     assert prov_res.order is not None
+    prov_res.order.status = "paid"
     order_id = prov_res.order.id
 
     store = InMemoryTransactionStore()
@@ -177,6 +178,10 @@ def test_provider_aware_crash_reconciliation() -> None:
     # Verify audit trail contains RECONCILED_FROM_PROVIDER
     events = audit_sink.list_by_session("s_crash")
     assert any("RECONCILED_FROM_PROVIDER" in e.reasons for e in events)
+    reconciled_txn = store.get(txn.transaction_id)
+    assert reconciled_txn is not None
+    assert reconciled_txn.status == TransactionStatus.SUCCEEDED
+    assert store.get_committed_spend("s_crash") == 3000
 
 
 def test_reconciliation_api_endpoints() -> None:

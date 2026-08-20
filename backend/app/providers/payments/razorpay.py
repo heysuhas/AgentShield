@@ -22,6 +22,13 @@ _CURRENCY_SUBUNITS: dict[str, int] = {
 }
 
 
+def _minor_units(amount: int, currency: str) -> int:
+    try:
+        return amount * _CURRENCY_SUBUNITS[currency.upper()]
+    except KeyError as exc:
+        raise ValueError(f"Unsupported currency: {currency}") from exc
+
+
 class RazorpaySandboxProvider:
     """Payment provider interacting with Razorpay's test/sandbox environment."""
 
@@ -61,10 +68,9 @@ class RazorpaySandboxProvider:
                 raw_response={"error": "UNSUPPORTED_CURRENCY"},
             )
 
-        multiplier = _CURRENCY_SUBUNITS[norm_curr]
         url = f"{self.base_url}/orders"
         payload: dict[str, Any] = {
-            "amount": amount * multiplier,
+            "amount": _minor_units(amount, norm_curr),
             "currency": norm_curr,
         }
         if receipt:
@@ -87,11 +93,20 @@ class RazorpaySandboxProvider:
 
         if resp.status_code in (200, 201):
             data = resp.json()
-            raw_amount = data.get("amount", amount * 100)
+            response_currency = str(data.get("currency", norm_curr)).upper()
+            try:
+                multiplier = _CURRENCY_SUBUNITS[response_currency]
+            except KeyError:
+                return PaymentResult(
+                    success=False,
+                    error=f"Unsupported currency in Razorpay response: {response_currency}",
+                    raw_response=data,
+                )
+            raw_amount = data.get("amount", _minor_units(amount, norm_curr))
             order = PaymentOrder(
                 id=data["id"],
-                amount=raw_amount // 100,
-                currency=data.get("currency", currency),
+                amount=raw_amount // multiplier,
+                currency=response_currency,
                 status=data.get("status", "created"),
                 receipt=data.get("receipt"),
             )
@@ -141,11 +156,20 @@ class RazorpaySandboxProvider:
 
         if resp.status_code == 200:
             data = resp.json()
+            response_currency = str(data.get("currency", "INR")).upper()
+            try:
+                multiplier = _CURRENCY_SUBUNITS[response_currency]
+            except KeyError:
+                return PaymentResult(
+                    success=False,
+                    error=f"Unsupported currency in Razorpay response: {response_currency}",
+                    raw_response=data,
+                )
             raw_amount = data.get("amount", 0)
             order = PaymentOrder(
                 id=data["id"],
-                amount=raw_amount // 100,
-                currency=data.get("currency", "INR"),
+                amount=raw_amount // multiplier,
+                currency=response_currency,
                 status=data.get("status", "created"),
                 receipt=data.get("receipt"),
             )

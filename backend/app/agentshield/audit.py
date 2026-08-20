@@ -6,6 +6,8 @@ from typing import Any, Literal, Protocol, runtime_checkable
 from pydantic import BaseModel, ConfigDict, Field
 
 from app.agentshield.policy_engine import PolicyViolation
+from app.agentshield.intent import IntentValidationResult
+from app.agentshield.risk_engine import RiskLevel
 from app.agentshield.transaction import TransactionStatus
 from app.providers.payments.base import PaymentResult
 
@@ -23,8 +25,10 @@ class AuditEvent(BaseModel):
     arguments: dict[str, Any] = Field(default_factory=dict)
     decision: Literal["ALLOW", "BLOCK"]
     risk_score: float = Field(ge=0.0, le=1.0)
+    risk_level: RiskLevel = "LOW"
     reasons: list[str] = Field(default_factory=list)
     policy_violations: list[PolicyViolation] = Field(default_factory=list)
+    semantic_validation: IntentValidationResult | None = None
     provider_name: str | None = None
     provider_result: PaymentResult | None = None
     timestamp: datetime = Field(
@@ -46,8 +50,10 @@ class AuditSink(Protocol):
         arguments: dict[str, Any] | None = None,
         decision: Literal["ALLOW", "BLOCK"],
         risk_score: float,
+        risk_level: RiskLevel = "LOW",
         reasons: list[str] | None = None,
         policy_violations: list[PolicyViolation] | None = None,
+        semantic_validation: IntentValidationResult | None = None,
         provider_name: str | None = None,
         provider_result: PaymentResult | None = None,
     ) -> AuditEvent:
@@ -92,8 +98,10 @@ class InMemoryAuditSink:
         arguments: dict[str, Any] | None = None,
         decision: Literal["ALLOW", "BLOCK"],
         risk_score: float,
+        risk_level: RiskLevel = "LOW",
         reasons: list[str] | None = None,
         policy_violations: list[PolicyViolation] | None = None,
+        semantic_validation: IntentValidationResult | None = None,
         provider_name: str | None = None,
         provider_result: PaymentResult | None = None,
     ) -> AuditEvent:
@@ -109,8 +117,10 @@ class InMemoryAuditSink:
             arguments=arguments or {},
             decision=decision,
             risk_score=risk_score,
+            risk_level=risk_level,
             reasons=reasons or [],
             policy_violations=policy_violations or [],
+            semantic_validation=semantic_validation,
             provider_name=provider_name,
             provider_result=provider_result,
             timestamp=datetime.now(timezone.utc),

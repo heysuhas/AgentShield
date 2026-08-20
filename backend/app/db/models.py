@@ -155,8 +155,10 @@ class AuditEventModel(Base):
     arguments: Mapped[dict] = mapped_column(JSON, default=dict)
     decision: Mapped[str] = mapped_column(String(16), nullable=False)
     risk_score: Mapped[float] = mapped_column(Float, default=0.0)
+    risk_level: Mapped[str] = mapped_column(String(16), default="LOW")
     reasons: Mapped[list] = mapped_column(JSON, default=list)
     policy_violations: Mapped[list] = mapped_column(JSON, default=list)
+    semantic_validation: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     provider_name: Mapped[str | None] = mapped_column(
         String(128), nullable=True
     )

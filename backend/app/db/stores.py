@@ -7,8 +7,9 @@ from sqlalchemy import delete, func, select
 from sqlalchemy.orm import Session
 
 from app.agentshield.audit import AuditEvent
-from app.agentshield.intent import AuthorizedIntent
+from app.agentshield.intent import AuthorizedIntent, IntentValidationResult
 from app.agentshield.policy_engine import Policy, PolicyViolation
+from app.agentshield.risk_engine import RiskLevel
 from app.agentshield.transaction import (
     VALID_TRANSITIONS,
     TransactionRecord,
@@ -218,7 +219,7 @@ class SqlAlchemyTransactionStore:
             self._db.refresh(model)
             return self._to_record(model), True
 
-    def expire_stale_reservations(
+    def list_stale_reservations(
         self, max_age_seconds: int = 300
     ) -> list[TransactionRecord]:
         cutoff_time = datetime.now(timezone.utc) - timedelta(seconds=max_age_seconds)
@@ -227,19 +228,23 @@ class SqlAlchemyTransactionStore:
             .where(TransactionModel.status == TransactionStatus.AUTHORIZED.value)
             .where(TransactionModel.created_at <= cutoff_time)
         )
-        models = self._db.scalars(stmt).all()
+        return [
+            self._to_record(model)
+            for model in self._db.scalars(stmt).all()
+        ]
+
+    def expire_stale_reservations(
+        self, max_age_seconds: int = 300
+    ) -> list[TransactionRecord]:
         expired: list[TransactionRecord] = []
-        for model in models:
-            model.status = TransactionStatus.CANCELLED.value
-            model.error = "RESERVATION_EXPIRED"
-            model.updated_at = datetime.now(timezone.utc)
-            expired.append(self._to_record(model))
-
-        if models:
-            self._db.commit()
-            for model in models:
-                self._db.refresh(model)
-
+        for txn in self.list_stale_reservations(max_age_seconds):
+            updated = self.update_status(
+                txn.transaction_id,
+                status=TransactionStatus.CANCELLED,
+                error="RESERVATION_EXPIRED",
+            )
+            if updated:
+                expired.append(updated)
         return expired
 
     def reset_session(self, session_id: str) -> None:
@@ -288,8 +293,10 @@ class SqlAlchemyAuditSink:
         arguments: dict[str, Any] | None = None,
         decision: Literal["ALLOW", "BLOCK"],
         risk_score: float,
+        risk_level: RiskLevel = "LOW",
         reasons: list[str] | None = None,
         policy_violations: list[PolicyViolation] | None = None,
+        semantic_validation: IntentValidationResult | None = None,
         provider_name: str | None = None,
         provider_result: PaymentResult | None = None,
     ) -> AuditEvent:
@@ -301,6 +308,11 @@ class SqlAlchemyAuditSink:
             raw_provider_result = provider_result.model_dump(mode="json")
 
         raw_violations = [v.model_dump(mode="json") for v in (policy_violations or [])]
+        raw_semantic_validation = (
+            semantic_validation.model_dump(mode="json")
+            if semantic_validation is not None
+            else None
+        )
 
         model = AuditEventModel(
             event_id=event_id,
@@ -311,8 +323,10 @@ class SqlAlchemyAuditSink:
             arguments=arguments or {},
             decision=decision,
             risk_score=risk_score,
+            risk_level=risk_level,
             reasons=reasons or [],
             policy_violations=raw_violations,
+            semantic_validation=raw_semantic_validation,
             provider_name=provider_name,
             provider_result=raw_provider_result,
             timestamp=datetime.now(timezone.utc),
@@ -330,6 +344,11 @@ class SqlAlchemyAuditSink:
             raw_provider_result = event.provider_result.model_dump(mode="json")
 
         raw_violations = [v.model_dump(mode="json") for v in event.policy_violations]
+        raw_semantic_validation = (
+            event.semantic_validation.model_dump(mode="json")
+            if event.semantic_validation is not None
+            else None
+        )
 
         model = AuditEventModel(
             event_id=event.event_id,
@@ -340,8 +359,10 @@ class SqlAlchemyAuditSink:
             arguments=dict(event.arguments),
             decision=event.decision,
             risk_score=event.risk_score,
+            risk_level=event.risk_level,
             reasons=list(event.reasons),
             policy_violations=raw_violations,
+            semantic_validation=raw_semantic_validation,
             provider_name=event.provider_name,
             provider_result=raw_provider_result,
             timestamp=event.timestamp,
@@ -383,6 +404,11 @@ class SqlAlchemyAuditSink:
             PolicyViolation.model_validate(v)
             for v in (model.policy_violations or [])
         ]
+        semantic_validation = (
+            IntentValidationResult.model_validate(model.semantic_validation)
+            if model.semantic_validation is not None
+            else None
+        )
 
         return AuditEvent(
             event_id=model.event_id,
@@ -395,8 +421,10 @@ class SqlAlchemyAuditSink:
             arguments=dict(model.arguments or {}),
             decision=model.decision,  # type: ignore
             risk_score=model.risk_score,
+            risk_level=model.risk_level,  # type: ignore
             reasons=list(model.reasons or []),
             policy_violations=violations,
+            semantic_validation=semantic_validation,
             provider_name=model.provider_name,
             provider_result=prov_res,
             timestamp=model.timestamp,

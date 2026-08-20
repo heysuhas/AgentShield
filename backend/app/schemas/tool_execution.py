@@ -25,9 +25,12 @@ class ExecuteToolResponse(BaseModel):
     session_id: str
     tool_name: str
     risk_score: float = Field(ge=0.0, le=1.0)
+    risk_level: Literal["LOW", "MEDIUM", "HIGH", "CRITICAL"] = "LOW"
     reasons: list[str] = Field(default_factory=list)
     policy_violations: list[PolicyViolation] = Field(default_factory=list)
     intent_validation: IntentValidationResult | None = None
+    semantic_validation: IntentValidationResult | None = None
     provider_result: PaymentResult | None = None
     transaction_id: str | None = None
     transaction_status: TransactionStatus | None = None
+    error: str | None = None

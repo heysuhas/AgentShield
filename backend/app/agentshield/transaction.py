@@ -123,6 +123,12 @@ class TransactionStore(Protocol):
         """Atomically check session spend limit, reserve spend, and create transaction record."""
         ...
 
+    def list_stale_reservations(
+        self, max_age_seconds: int = 300
+    ) -> list[TransactionRecord]:
+        """List AUTHORIZED transactions older than max_age_seconds."""
+        ...
+
     def expire_stale_reservations(
         self, max_age_seconds: int = 300
     ) -> list[TransactionRecord]:
@@ -276,23 +282,30 @@ class InMemoryTransactionStore:
             and t.status == TransactionStatus.AUTHORIZED
         )
 
+    def list_stale_reservations(
+        self, max_age_seconds: int = 300
+    ) -> list[TransactionRecord]:
+        cutoff = datetime.now(timezone.utc).timestamp() - max_age_seconds
+        with self._reservation_lock:
+            return [
+                txn
+                for txn in self._transactions.values()
+                if txn.status == TransactionStatus.AUTHORIZED
+                and txn.created_at.timestamp() <= cutoff
+            ]
+
     def expire_stale_reservations(
         self, max_age_seconds: int = 300
     ) -> list[TransactionRecord]:
-        now = datetime.now(timezone.utc)
         expired: list[TransactionRecord] = []
-        with self._reservation_lock:
-            for txn_id, txn in list(self._transactions.items()):
-                if txn.status == TransactionStatus.AUTHORIZED:
-                    age = (now - txn.created_at).total_seconds()
-                    if age >= max_age_seconds:
-                        updated = self.update_status(
-                            txn_id,
-                            status=TransactionStatus.CANCELLED,
-                            error="RESERVATION_EXPIRED",
-                        )
-                        if updated:
-                            expired.append(updated)
+        for txn in self.list_stale_reservations(max_age_seconds):
+            updated = self.update_status(
+                txn.transaction_id,
+                status=TransactionStatus.CANCELLED,
+                error="RESERVATION_EXPIRED",
+            )
+            if updated:
+                expired.append(updated)
         return expired
 
     def reset_session(self, session_id: str) -> None:

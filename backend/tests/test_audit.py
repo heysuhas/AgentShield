@@ -85,6 +85,7 @@ def test_executor_records_audit_event_on_allow() -> None:
     assert event.tool_name == "create_order"
     assert event.decision == "ALLOW"
     assert event.risk_score == 0.0
+    assert event.risk_level == "LOW"
     assert event.provider_name == "MockPaymentProvider"
     assert event.provider_result is not None
     assert event.provider_result.success is True
@@ -121,6 +122,7 @@ def test_executor_records_audit_event_on_block() -> None:
     assert event.tool_name == "create_payout"
     assert event.decision == "BLOCK"
     assert event.risk_score == 1.0
+    assert event.risk_level == "CRITICAL"
     assert event.reasons == ["TOOL_NOT_ALLOWED"]
     assert len(event.policy_violations) == 1
     assert event.policy_violations[0].rule == "TOOL_NOT_ALLOWED"
