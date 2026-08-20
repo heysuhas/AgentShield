@@ -34,6 +34,55 @@ from app.providers.payments.base import (
 _SUPPORTED_PROVIDER_TOOLS = frozenset({"create_order", "fetch_order"})
 
 
+def _intent_violations(
+    intent: AuthorizedIntent,
+    validation: IntentValidationResult,
+    *,
+    tool_name: str,
+    arguments: dict[str, object],
+) -> list[PolicyViolation]:
+    """Convert intent evidence into precise machine-readable violations."""
+
+    evidence: dict[str, tuple[int | str, int | str | None]] = {
+        "INTENT_TOOL_MISMATCH": (
+            tool_name,
+            ", ".join(sorted(intent.allowed_tools or frozenset())),
+        ),
+        "INTENT_CATEGORY_MISMATCH": (
+            str(arguments.get("category") or "<missing>"),
+            intent.category,
+        ),
+        "INTENT_PURPOSE_MISMATCH": (
+            str(arguments.get("purpose") or "<missing>"),
+            intent.purpose,
+        ),
+        "INTENT_RECIPIENT_MISMATCH": (
+            str(arguments.get("recipient") or "<missing>"),
+            intent.recipient,
+        ),
+        "INTENT_MERCHANT_MISMATCH": (
+            str(arguments.get("merchant") or "<missing>"),
+            intent.merchant,
+        ),
+        "INTENT_AMOUNT_EXCEEDED": (
+            str(arguments.get("amount") or "<missing>"),
+            intent.max_amount,
+        ),
+        "INTENT_CURRENCY_MISMATCH": (
+            str(arguments.get("currency") or "<missing>"),
+            intent.currency,
+        ),
+    }
+    return [
+        PolicyViolation(
+            rule=reason,
+            actual=evidence.get(reason, (reason, None))[0],
+            limit=evidence.get(reason, (reason, None))[1],
+        )
+        for reason in validation.reasons
+    ]
+
+
 class ExecutionResult(BaseModel):
     """A policy decision returned before any provider can be called."""
 
@@ -219,14 +268,12 @@ class AgentShield:
                 arguments=dict(arguments),
             )
             if not intent_validation.intent_match:
-                violations = [
-                    PolicyViolation(
-                        rule=reason,
-                        actual=str(arguments.get(reason.lower().replace("intent_", "").replace("_mismatch", "").replace("_exceeded", ""), "")),
-                        limit=str(getattr(intent, reason.lower().replace("intent_", "").replace("_mismatch", "").replace("_exceeded", ""), "")),
-                    )
-                    for reason in intent_validation.reasons
-                ]
+                violations = _intent_violations(
+                    intent,
+                    intent_validation,
+                    tool_name=tool_name,
+                    arguments=dict(arguments),
+                )
                 return self._record_and_block(
                     session_id=session_id,
                     tool_name=tool_name,

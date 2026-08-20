@@ -58,35 +58,51 @@ def validate_intent_deterministically(
     # 4. Exact category match
     if intent.category is not None:
         req_category = arguments.get("category")
-        if req_category is not None:
-            if str(req_category).strip().lower() != intent.category.strip().lower():
-                category_match = False
-                reasons.append("INTENT_CATEGORY_MISMATCH")
-                explanations.append(
-                    f"Requested category '{req_category}' does not match authorized '{intent.category}'."
-                )
+        if (
+            req_category is None
+            or str(req_category).strip().lower() != intent.category.strip().lower()
+        ):
+            category_match = False
+            reasons.append("INTENT_CATEGORY_MISMATCH")
+            explanations.append(
+                f"Requested category '{req_category or '<missing>'}' does not match authorized '{intent.category}'."
+            )
 
-    # 5. Merchant match
+    # 5. Purpose is checked when the tool request carries semantic purpose data.
+    if intent.purpose is not None and arguments.get("purpose") is not None:
+        req_purpose = str(arguments["purpose"])
+        if req_purpose.strip().lower() != intent.purpose.strip().lower():
+            purpose_match = False
+            reasons.append("INTENT_PURPOSE_MISMATCH")
+            explanations.append(
+                f"Requested purpose '{req_purpose}' does not match authorized '{intent.purpose}'."
+            )
+
+    # 6. Merchant match
     if intent.merchant is not None:
         req_merchant = arguments.get("merchant")
-        if req_merchant is not None:
-            if str(req_merchant).strip().lower() != intent.merchant.strip().lower():
-                merchant_match = False
-                reasons.append("INTENT_MERCHANT_MISMATCH")
-                explanations.append(
-                    f"Requested merchant '{req_merchant}' does not match authorized '{intent.merchant}'."
-                )
+        if (
+            req_merchant is None
+            or str(req_merchant).strip().lower() != intent.merchant.strip().lower()
+        ):
+            merchant_match = False
+            reasons.append("INTENT_MERCHANT_MISMATCH")
+            explanations.append(
+                f"Requested merchant '{req_merchant or '<missing>'}' does not match authorized '{intent.merchant}'."
+            )
 
-    # 6. Recipient match
+    # 7. Recipient match
     if intent.recipient is not None:
         req_recipient = arguments.get("recipient")
-        if req_recipient is not None:
-            if str(req_recipient).strip().lower() != intent.recipient.strip().lower():
-                recipient_match = False
-                reasons.append("INTENT_RECIPIENT_MISMATCH")
-                explanations.append(
-                    f"Requested recipient '{req_recipient}' does not match authorized '{intent.recipient}'."
-                )
+        if (
+            req_recipient is None
+            or str(req_recipient).strip().lower() != intent.recipient.strip().lower()
+        ):
+            recipient_match = False
+            reasons.append("INTENT_RECIPIENT_MISMATCH")
+            explanations.append(
+                f"Requested recipient '{req_recipient or '<missing>'}' does not match authorized '{intent.recipient}'."
+            )
 
     intent_match = len(reasons) == 0
     explanation = " ".join(explanations) if explanations else None

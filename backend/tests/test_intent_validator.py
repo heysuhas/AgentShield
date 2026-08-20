@@ -61,6 +61,34 @@ def test_intent_category_mismatch_shoes_vs_gift_card() -> None:
     assert "gift_card" in result.explanation
 
 
+def test_intent_purpose_mismatch_when_request_provides_purpose() -> None:
+    intent = AuthorizedIntent(purpose="running shoes")
+
+    result = validate_intent_deterministically(
+        intent,
+        tool_name="create_order",
+        arguments={"purpose": "gift card"},
+    )
+
+    assert result.intent_match is False
+    assert result.purpose_match is False
+    assert "INTENT_PURPOSE_MISMATCH" in result.reasons
+
+
+def test_required_category_cannot_be_omitted() -> None:
+    intent = AuthorizedIntent(category="footwear")
+
+    result = validate_intent_deterministically(
+        intent,
+        tool_name="create_order",
+        arguments={"amount": 100},
+    )
+
+    assert result.intent_match is False
+    assert result.category_match is False
+    assert "INTENT_CATEGORY_MISMATCH" in result.reasons
+
+
 def test_intent_amount_exceeded() -> None:
     intent = AuthorizedIntent(
         category="electronics",
