@@ -2,95 +2,59 @@
 
 :root {
   color-scheme: dark;
-  --bg-primary: #040711;
-  --bg-surface: #0a0f1d;
-  --border-glass: rgba(255, 255, 255, 0.08);
-  --border-glass-bright: rgba(255, 255, 255, 0.15);
+  --bg-app: #000000;
+  --bg-surface: #0a0a0a;
+  --bg-card: #111111;
+  --border-subtle: #222222;
+  --border-muted: #2e2e2e;
 }
 
 body {
   margin: 0;
-  background-color: var(--bg-primary);
-  color: #f8fafc;
-  font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  background-color: var(--bg-app);
+  color: #ededed;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
   -webkit-font-smoothing: antialiased;
-  background-image: 
-    radial-gradient(ellipse 80% 50% at 50% -20%, rgba(14, 165, 233, 0.12), transparent),
-    radial-gradient(ellipse 60% 40% at 50% 120%, rgba(99, 102, 241, 0.08), transparent);
-  background-attachment: fixed;
+  -moz-osx-font-smoothing: grayscale;
 }
 
-/* Custom scrollbars */
+/* Custom minimal scrollbar */
 ::-webkit-scrollbar {
   width: 5px;
   height: 5px;
 }
 ::-webkit-scrollbar-track {
-  background: #060913;
+  background: #000000;
 }
 ::-webkit-scrollbar-thumb {
-  background: #1e293b;
-  border-radius: 4px;
+  background: #262626;
+  border-radius: 2px;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: #334155;
+  background: #404040;
 }
 
-/* Frosted Glassmorphism Styles */
-.glass-panel {
-  background: rgba(10, 15, 29, 0.65);
-  backdrop-filter: blur(16px) saturate(180%);
-  -webkit-backdrop-filter: blur(16px) saturate(180%);
-  border: 1px solid rgba(255, 255, 255, 0.07);
-  box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.37);
+/* Vercel / GitHub UI Cards */
+.vercel-card {
+  background-color: #0a0a0a;
+  border: 1px solid #222222;
+  border-radius: 12px;
+  transition: border-color 0.15s ease, background-color 0.15s ease;
 }
 
-.glass-panel-glow {
-  background: rgba(13, 20, 38, 0.75);
-  backdrop-filter: blur(20px) saturate(190%);
-  -webkit-backdrop-filter: blur(20px) saturate(190%);
-  border: 1px solid rgba(56, 189, 248, 0.2);
-  box-shadow: 0 0 40px -10px rgba(14, 165, 233, 0.2), 0 8px 32px 0 rgba(0, 0, 0, 0.4);
+.vercel-card:hover {
+  border-color: #333333;
 }
 
-.glass-card {
-  background: rgba(15, 23, 42, 0.5);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
-  border: 1px solid rgba(255, 255, 255, 0.06);
+.vercel-input {
+  background-color: #000000;
+  border: 1px solid #262626;
+  border-radius: 8px;
+  color: #ededed;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
 }
 
-.glass-card:hover {
-  background: rgba(20, 30, 55, 0.65);
-  border-color: rgba(255, 255, 255, 0.12);
-}
-
-/* Mirror blurry reflection text */
-.mirror-text-glow {
-  position: relative;
-  text-shadow: 0 0 30px rgba(56, 189, 248, 0.35);
-}
-
-.mirror-text-glow::after {
-  content: attr(data-text);
-  position: absolute;
-  left: 0;
-  top: 100%;
-  transform: scaleY(-0.7) translateY(4px);
-  opacity: 0.18;
-  filter: blur(3px);
-  mask-image: linear-gradient(to top, black, transparent);
-  -webkit-mask-image: linear-gradient(to top, black, transparent);
-  pointer-events: none;
-  background-clip: text;
-  -webkit-background-clip: text;
-}
-
-@keyframes pulse-subtle {
-  0%, 100% { opacity: 0.8; transform: scale(1); }
-  50% { opacity: 1; transform: scale(1.02); }
-}
-
-.pulse-glow {
-  animation: pulse-subtle 4s ease-in-out infinite;
+.vercel-input:focus {
+  border-color: #555555;
+  outline: none;
 }
