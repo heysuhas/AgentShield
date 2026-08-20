@@ -4,6 +4,7 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
+from app.agentshield.audit import AuditSink, InMemoryAuditSink
 from app.agentshield.policy_engine import (
     Policy,
     PolicyViolation,
@@ -47,6 +48,7 @@ class AgentShield:
         policy_or_provider: Policy | PolicyProvider,
         payment_provider: PaymentProvider | None = None,
         transaction_store: TransactionStore | None = None,
+        audit_sink: AuditSink | None = None,
     ) -> None:
         if isinstance(policy_or_provider, Policy):
             self._provider: PolicyProvider = InMemoryPolicyProvider(
@@ -58,8 +60,14 @@ class AgentShield:
         self._transaction_store: TransactionStore = (
             transaction_store or InMemoryTransactionStore()
         )
+        self._audit_sink: AuditSink = audit_sink or InMemoryAuditSink()
         self._committed_spend: dict[str, int] = {}
         self._reserved_spend: dict[str, int] = {}
+
+    @property
+    def audit_sink(self) -> AuditSink:
+        """Return the configured audit sink."""
+        return self._audit_sink
 
     def get_committed_spend(self, session_id: str) -> int:
         """Return the settled/committed transaction spend for a session."""
@@ -81,11 +89,18 @@ class AgentShield:
         self._reserved_spend.pop(session_id, None)
 
     def reset(self) -> None:
-        """Reset all in-memory spend and transaction store state."""
+        """Reset all in-memory spend, transaction store, and audit state."""
         self._committed_spend.clear()
         self._reserved_spend.clear()
         if isinstance(self._transaction_store, InMemoryTransactionStore):
             self._transaction_store.reset()
+        if isinstance(self._audit_sink, InMemoryAuditSink):
+            self._audit_sink.reset()
+
+    def _get_provider_name(self) -> str | None:
+        if self._payment_provider is not None:
+            return self._payment_provider.__class__.__name__
+        return None
 
     def execute_tool(
         self,
@@ -262,6 +277,19 @@ class AgentShield:
                     0, self.get_reserved_spend(session_id) - raw_amount
                 )
 
+        self._audit_sink.create_and_record(
+            transaction_id=txn.transaction_id,
+            session_id=session_id,
+            tool_name=tool_name,
+            arguments=dict(arguments),
+            decision="ALLOW",
+            risk_score=0.0,
+            reasons=[],
+            policy_violations=[],
+            provider_name=self._get_provider_name(),
+            provider_result=provider_result,
+        )
+
         return ExecutionResult(
             decision="ALLOW",
             session_id=session_id,
@@ -292,6 +320,20 @@ class AgentShield:
             reasons=reasons,
             arguments=arguments,
         )
+
+        self._audit_sink.create_and_record(
+            transaction_id=txn.transaction_id,
+            session_id=session_id,
+            tool_name=tool_name,
+            arguments=dict(arguments),
+            decision="BLOCK",
+            risk_score=1.0,
+            reasons=reasons,
+            policy_violations=violations,
+            provider_name=self._get_provider_name(),
+            provider_result=None,
+        )
+
         return ExecutionResult(
             decision="BLOCK",
             session_id=session_id,
