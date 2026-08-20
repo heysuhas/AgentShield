@@ -148,10 +148,18 @@ class AgentShield:
 
     def get_committed_spend(self, session_id: str) -> int:
         """Return the settled/committed transaction spend for a session."""
+        if hasattr(self._transaction_store, "get_committed_spend") and not isinstance(
+            self._transaction_store, InMemoryTransactionStore
+        ):
+            return self._transaction_store.get_committed_spend(session_id)
         return self._committed_spend.get(session_id, 0)
 
     def get_reserved_spend(self, session_id: str) -> int:
         """Return the currently reserved in-flight spend for a session."""
+        if hasattr(self._transaction_store, "get_reserved_spend") and not isinstance(
+            self._transaction_store, InMemoryTransactionStore
+        ):
+            return self._transaction_store.get_reserved_spend(session_id)
         return self._reserved_spend.get(session_id, 0)
 
     def get_session_spend(self, session_id: str) -> int:
