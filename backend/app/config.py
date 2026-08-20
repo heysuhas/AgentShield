@@ -18,6 +18,11 @@ class Settings(BaseSettings):
     PROJECT_NAME: str = "AgentShield"
     API_V1_STR: str = "/api/v1"
 
+    # NVIDIA NIM Configuration
+    NVIDIA_API_KEY: str | None = None
+    NVIDIA_BASE_URL: str = "https://integrate.api.nvidia.com/v1"
+    NVIDIA_MODEL: str = "meta/llama-3.3-70b-instruct"
+
 
 @lru_cache
 def get_settings() -> Settings:
