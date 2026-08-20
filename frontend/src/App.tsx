@@ -1,25 +1,19 @@
-import React, { useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
-  Shield,
-  ShieldAlert,
-  ShieldCheck,
-  Zap,
   Activity,
-  RotateCcw,
-  RefreshCw,
-  Play,
-  FileText,
+  ArrowRight,
+  Bot,
+  Check,
+  Circle,
+  CircleAlert,
   CreditCard,
-  Target,
-  Clock,
-  Layers,
-  ChevronRight,
-  Code,
-  X,
-  Loader2,
+  LockKeyhole,
+  Play,
+  RefreshCw,
+  Shield,
   UserCheck,
-  CheckCircle2,
-  XCircle
+  X,
+  Zap,
 } from 'lucide-react';
 import {
   approveReview,
@@ -28,871 +22,158 @@ import {
   fetchApprovals,
   fetchAuditEvents,
   fetchHealth,
-  fetchTransactions,
-  reconcileSession,
   rejectReview,
-  resetSessionSpend
+  runAgent,
 } from './api';
-import type { ApprovalRecord, AuditEvent, SessionData, Transaction } from './types';
+import type { ApprovalRecord, AuditEvent, SessionData } from './types';
 
-const DEFAULT_SESSION_ID = 'demo_shopper_01';
+const SESSION_ID = 'demo_shopper_01';
 
-export default function App() {
-  const [sessionId, setSessionId] = useState(DEFAULT_SESSION_ID);
+type Result = Record<string, any> | null;
+
+function decisionTone(decision?: string) {
+  if (decision === 'ALLOW') return 'text-emerald-300 bg-emerald-400/10 border-emerald-400/20';
+  if (decision === 'REVIEW') return 'text-amber-300 bg-amber-400/10 border-amber-400/20';
+  return 'text-rose-300 bg-rose-400/10 border-rose-400/20';
+}
+
+function App() {
   const [session, setSession] = useState<SessionData | null>(null);
-  const [auditEvents, setAuditEvents] = useState<AuditEvent[]>([]);
-  const [transactions, setTransactions] = useState<Transaction[]>([]);
-  const [pendingApprovals, setPendingApprovals] = useState<ApprovalRecord[]>([]);
-  const [isBackendHealthy, setIsBackendHealthy] = useState<boolean | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [executingDemo, setExecutingDemo] = useState<string | null>(null);
-  const [lastResult, setLastResult] = useState<any>(null);
-  const [selectedEvent, setSelectedEvent] = useState<AuditEvent | null>(null);
-  const [reviewingId, setReviewingId] = useState<string | null>(null);
+  const [events, setEvents] = useState<AuditEvent[]>([]);
+  const [approvals, setApprovals] = useState<ApprovalRecord[]>([]);
+  const [prompt, setPrompt] = useState('Buy running shoes under ₹5,000');
+  const [result, setResult] = useState<Result>(null);
+  const [busy, setBusy] = useState(false);
+  const [online, setOnline] = useState<boolean | null>(null);
+  const [reviewing, setReviewing] = useState<string | null>(null);
 
-  // Custom tool execution form state
-  const [customTool, setCustomTool] = useState('create_order');
-  const [customAmount, setCustomAmount] = useState('1500');
-  const [customCategory, setCustomCategory] = useState('footwear');
-  const [customPurpose, setCustomPurpose] = useState('running shoes');
-  const [customRecipient, setCustomRecipient] = useState('');
-
-  // Load session, audit log, and approvals
-  const refreshData = React.useCallback(async () => {
+  const refresh = useCallback(async () => {
     try {
-      const sess = await createOrInitSession(sessionId);
-      setSession(sess);
-      const audit = await fetchAuditEvents(sessionId, undefined, undefined, 50);
-      setAuditEvents(audit.items);
-      const txns = await fetchTransactions(sessionId, undefined, 50);
-      setTransactions(txns.items);
-      const approvals = await fetchApprovals(sessionId, 'PENDING', 20);
-      setPendingApprovals(approvals.items);
-    } catch (e) {
-      console.error(e);
+      const [current, audit, pending] = await Promise.all([
+        createOrInitSession(SESSION_ID),
+        fetchAuditEvents(SESSION_ID, undefined, undefined, 20),
+        fetchApprovals(SESSION_ID, 'PENDING', 10),
+      ]);
+      setSession(current);
+      setEvents(audit.items);
+      setApprovals(pending.items);
+      setOnline(true);
+    } catch {
+      setOnline(false);
     }
-  }, [sessionId]);
+  }, []);
 
   useEffect(() => {
-    fetchHealth()
-      .then(() => setIsBackendHealthy(true))
-      .catch(() => setIsBackendHealthy(false));
+    fetchHealth().then(() => setOnline(true)).catch(() => setOnline(false));
+    void refresh();
+    const timer = window.setInterval(() => void refresh(), 5000);
+    return () => window.clearInterval(timer);
+  }, [refresh]);
 
-    void refreshData();
-    const interval = setInterval(() => {
-      void refreshData();
-    }, 4000);
-    return () => clearInterval(interval);
-  }, [refreshData]);
-
-  const handleDemoRun = async (
-    name: string,
-    toolName: string,
-    args: Record<string, any>
-  ) => {
-    setExecutingDemo(name);
-    setLoading(true);
+  const runAgentRequest = async (event: React.FormEvent) => {
+    event.preventDefault();
+    setBusy(true);
     try {
-      const res = await executeToolCall(sessionId, toolName, args);
-      setLastResult(res);
-      await refreshData();
-    } catch (err: any) {
-      setLastResult({ error: err.message });
+      const response = await runAgent(SESSION_ID, prompt);
+      setResult(response);
+      await refresh();
+    } catch (error: any) {
+      setResult({ error: error.message });
     } finally {
-      setLoading(false);
-      setExecutingDemo(null);
+      setBusy(false);
     }
   };
 
-  const handleVelocityBurst = async () => {
-    setExecutingDemo('velocity_burst');
-    setLoading(true);
+  const runScenario = async (name: string, args: Record<string, any>) => {
+    setBusy(true);
     try {
-      // Fire 5 rapid requests to trigger velocity limit (max 4 per 60s)
-      for (let i = 0; i < 5; i++) {
-        const res = await executeToolCall(sessionId, 'create_order', {
-          amount: 500,
-          category: 'footwear',
-          purpose: 'running shoes',
-        });
-        setLastResult(res);
-      }
-      await refreshData();
+      const response = await executeToolCall(SESSION_ID, 'create_order', args);
+      setResult({ scenario: name, execution: response, decision: response.decision });
+      await refresh();
     } finally {
-      setLoading(false);
-      setExecutingDemo(null);
+      setBusy(false);
     }
   };
 
-  const handleApprove = async (approvalId: string) => {
-    setReviewingId(approvalId);
+  const review = async (approvalId: string, action: 'approve' | 'reject') => {
+    setReviewing(approvalId);
     try {
-      const res = await approveReview(approvalId, 'security_admin', 'Approved via Operator Dashboard');
-      setLastResult(res);
-      await refreshData();
-    } catch (err: any) {
-      alert(`Approval error: ${err.message}`);
+      const response = action === 'approve'
+        ? await approveReview(approvalId, 'security_operator', 'Reviewed in AgentShield console')
+        : await rejectReview(approvalId, 'security_operator', 'Rejected in AgentShield console');
+      setResult({ execution: response, decision: response.decision });
+      await refresh();
     } finally {
-      setReviewingId(null);
+      setReviewing(null);
     }
   };
 
-  const handleReject = async (approvalId: string) => {
-    setReviewingId(approvalId);
-    try {
-      const res = await rejectReview(approvalId, 'security_admin', 'Rejected by operator');
-      setLastResult(res);
-      await refreshData();
-    } catch (err: any) {
-      alert(`Rejection error: ${err.message}`);
-    } finally {
-      setReviewingId(null);
-    }
-  };
+  const spendPercent = useMemo(() => {
+    const cap = session?.policy?.max_session_spend;
+    return cap ? Math.min(100, (session.total_active_spend / cap) * 100) : 0;
+  }, [session]);
 
-  const handleResetSpend = async () => {
-    if (!session) return;
-    const updated = await resetSessionSpend(session.session_id);
-    setSession(updated);
-    refreshData();
-  };
-
-  const handleReconcile = async () => {
-    if (!session) return;
-    const updated = await reconcileSession(session.session_id);
-    setSession(updated);
-    refreshData();
-  };
-
-  const handleCustomExecute = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setLoading(true);
-    const args: Record<string, any> = {};
-    if (customAmount) args.amount = parseInt(customAmount, 10);
-    if (customCategory) args.category = customCategory;
-    if (customPurpose) args.purpose = customPurpose;
-    if (customRecipient) args.recipient = customRecipient;
-
-    try {
-      const res = await executeToolCall(sessionId, customTool, args);
-      setLastResult(res);
-      await refreshData();
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const spendPercent = session?.policy?.max_session_spend
-    ? Math.min(100, Math.round((session.total_active_spend / session.policy.max_session_spend) * 100))
-    : 0;
+  const execution = result?.execution ?? result;
+  const proposal = result?.proposed_tool_call;
 
   return (
-    <div className="min-h-screen bg-[#070b14] text-slate-100 flex flex-col font-sans">
-      {/* Top Header */}
-      <header className="border-b border-slate-800 bg-[#0d1322] px-6 py-4 sticky top-0 z-40 shadow-lg">
-        <div className="max-w-7xl mx-auto flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+    <div className="min-h-screen bg-[#08090b] text-[#f5f5f5] selection:bg-cyan-300 selection:text-black">
+      <header className="sticky top-0 z-20 border-b border-white/[0.07] bg-[#08090b]/90 backdrop-blur-xl">
+        <div className="mx-auto flex max-w-6xl items-center justify-between px-6 py-4">
           <div className="flex items-center gap-3">
-            <div className="p-2 rounded-xl bg-blue-500/10 border border-blue-500/30 text-blue-400">
-              <Shield className="w-6 h-6" />
-            </div>
-            <div>
-              <div className="flex items-center gap-2">
-                <h1 className="text-xl font-bold tracking-tight text-white m-0">AgentShield</h1>
-                <span className="text-xs px-2 py-0.5 rounded-full bg-blue-900/60 border border-blue-700 text-blue-300 font-mono">
-                  Trust Layer
-                </span>
-              </div>
-              <p className="text-xs text-slate-400 m-0">
-                Authorization & Risk Boundary between Autonomous Agents and Payment Infrastructure
-              </p>
-            </div>
+            <div className="grid h-9 w-9 place-items-center rounded-xl border border-cyan-300/20 bg-cyan-300/10 text-cyan-300"><Shield size={18} /></div>
+            <div><div className="text-sm font-semibold tracking-tight">AgentShield</div><div className="text-[11px] text-zinc-500">Agent authorization console</div></div>
           </div>
-
-          <div className="flex items-center gap-3">
-            <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-slate-900 border border-slate-800 text-xs">
-              <span className="text-slate-400">Session:</span>
-              <input
-                type="text"
-                value={sessionId}
-                onChange={(e) => setSessionId(e.target.value)}
-                className="bg-transparent font-mono text-blue-300 w-32 border-none focus:outline-hidden"
-              />
-            </div>
-
-            <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-slate-900 border border-slate-800 text-xs">
-              <span
-                className={`w-2 h-2 rounded-full ${
-                  isBackendHealthy ? 'bg-emerald-400 animate-pulse' : 'bg-red-500'
-                }`}
-              />
-              <span className="text-slate-300 font-medium">
-                {isBackendHealthy ? 'Online' : 'Offline'}
-              </span>
-            </div>
-
-            <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-slate-900 border border-slate-800 text-xs">
-              <CreditCard className="w-3.5 h-3.5 text-indigo-400" />
-              <span className="text-slate-400">Provider:</span>
-              <span className="text-indigo-300 font-mono font-medium">Mock / Sandbox</span>
-            </div>
+          <div className="flex items-center gap-4 text-xs text-zinc-500">
+            <span className="hidden sm:inline-flex items-center gap-2"><Circle size={8} className={online ? 'fill-emerald-400 text-emerald-400' : 'fill-rose-400 text-rose-400'} />{online ? 'API connected' : 'API offline'}</span>
+            <span className="inline-flex items-center gap-2"><CreditCard size={14} className="text-zinc-400" />sandbox provider</span>
           </div>
         </div>
       </header>
 
-      {/* Main Content Area */}
-      <main className="max-w-7xl mx-auto px-6 py-8 flex-1 w-full space-y-8">
-        {/* Session & Budget Overview */}
-        <section className="grid grid-cols-1 md:grid-cols-3 gap-6">
-          {/* Card 1: Active Budget & Spend */}
-          <div className="p-6 rounded-2xl bg-gradient-to-br from-slate-900/90 to-slate-950 border border-slate-800/80 shadow-md">
-            <div className="flex items-center justify-between mb-4">
-              <div className="flex items-center gap-2 text-slate-300 font-semibold text-sm">
-                <Activity className="w-4 h-4 text-blue-400" />
-                Session Spending
-              </div>
-              <div className="flex items-center gap-1.5">
-                <button
-                  onClick={handleResetSpend}
-                  title="Reset Spend"
-                  className="p-1.5 rounded-lg hover:bg-slate-800 text-slate-400 hover:text-slate-200 transition text-xs flex items-center gap-1"
-                >
-                  <RotateCcw className="w-3.5 h-3.5" />
-                  Reset
-                </button>
-                <button
-                  onClick={handleReconcile}
-                  title="Reconcile Stranded Reservations"
-                  className="p-1.5 rounded-lg hover:bg-slate-800 text-slate-400 hover:text-slate-200 transition text-xs flex items-center gap-1"
-                >
-                  <RefreshCw className="w-3.5 h-3.5" />
-                  Reconcile
-                </button>
-              </div>
-            </div>
-
-            <div className="space-y-3">
-              <div className="flex items-baseline justify-between">
-                <span className="text-3xl font-extrabold text-white">
-                  ₹{session?.total_active_spend.toLocaleString() ?? '0'}
-                </span>
-                <span className="text-sm text-slate-400">
-                  / ₹{session?.policy?.max_session_spend?.toLocaleString() ?? '∞'} limit
-                </span>
-              </div>
-
-              {/* Progress bar */}
-              <div className="w-full bg-slate-800 rounded-full h-2 overflow-hidden">
-                <div
-                  className={`h-full transition-all duration-500 ${
-                    spendPercent > 90
-                      ? 'bg-rose-500'
-                      : spendPercent > 70
-                      ? 'bg-amber-400'
-                      : 'bg-emerald-400'
-                  }`}
-                  style={{ width: `${spendPercent}%` }}
-                />
-              </div>
-
-              <div className="flex justify-between text-xs text-slate-400 pt-1">
-                <span>Committed: ₹{session?.committed_spend.toLocaleString() ?? 0}</span>
-                <span>Reserved: ₹{session?.reserved_spend.toLocaleString() ?? 0}</span>
-              </div>
-            </div>
+      <main className="mx-auto max-w-6xl space-y-8 px-6 py-10">
+        <section className="grid gap-8 lg:grid-cols-[1.25fr_0.75fr] lg:items-end">
+          <div>
+            <div className="mb-4 flex items-center gap-2 text-[11px] font-medium uppercase tracking-[0.22em] text-cyan-300"><Bot size={14} /> trust boundary</div>
+            <h1 className="max-w-2xl text-4xl font-semibold tracking-[-0.04em] text-white sm:text-5xl">The agent can ask.<br /><span className="text-zinc-500">It cannot authorize.</span></h1>
+            <p className="mt-5 max-w-xl text-sm leading-6 text-zinc-400">Run a real natural-language request through NVIDIA NIM, deterministic policy, intent validation, human review, and the payment provider.</p>
           </div>
-
-          {/* Card 2: Authorized Intent */}
-          <div className="p-6 rounded-2xl bg-gradient-to-br from-slate-900/90 to-slate-950 border border-slate-800/80 shadow-md">
-            <div className="flex items-center gap-2 text-slate-300 font-semibold text-sm mb-4">
-              <Target className="w-4 h-4 text-emerald-400" />
-              User Authorized Intent
-            </div>
-
-            <div className="space-y-2 text-xs">
-              <div className="flex justify-between py-1 border-b border-slate-800/60">
-                <span className="text-slate-400">Category:</span>
-                <span className="font-mono text-emerald-300 font-semibold">
-                  {session?.intent?.category ?? 'Any'}
-                </span>
-              </div>
-              <div className="flex justify-between py-1 border-b border-slate-800/60">
-                <span className="text-slate-400">Purpose:</span>
-                <span className="font-mono text-slate-200">
-                  {session?.intent?.purpose ?? 'Not specified'}
-                </span>
-              </div>
-              <div className="flex justify-between py-1">
-                <span className="text-slate-400">Max Transaction:</span>
-                <span className="font-mono text-slate-200">
-                  ₹{session?.intent?.max_amount?.toLocaleString() ?? 'No limit'}
-                </span>
-              </div>
-            </div>
-          </div>
-
-          {/* Card 3: Security Policy & Review Threshold */}
-          <div className="p-6 rounded-2xl bg-gradient-to-br from-slate-900/90 to-slate-950 border border-slate-800/80 shadow-md">
-            <div className="flex items-center gap-2 text-slate-300 font-semibold text-sm mb-4">
-              <Clock className="w-4 h-4 text-purple-400" />
-              Hard Policy & Review Rules
-            </div>
-
-            <div className="space-y-2 text-xs">
-              <div className="flex justify-between py-1 border-b border-slate-800/60">
-                <span className="text-slate-400">Allowed Tools:</span>
-                <span className="font-mono text-purple-300 font-medium">
-                  {session?.policy?.allowed_tools.join(', ') ?? 'None'}
-                </span>
-              </div>
-              <div className="flex justify-between py-1 border-b border-slate-800/60">
-                <span className="text-slate-400">Review Threshold:</span>
-                <span className="font-mono text-amber-300 font-semibold">
-                  Above ₹{session?.policy?.require_approval_above?.toLocaleString() ?? 'None'}
-                </span>
-              </div>
-              <div className="flex justify-between py-1">
-                <span className="text-slate-400">Burst Velocity Limit:</span>
-                <span className="font-mono text-purple-300">
-                  {session?.policy?.max_requests_per_window ?? 4} req / {session?.policy?.window_seconds ?? 60}s
-                </span>
-              </div>
-            </div>
+          <div className="rounded-2xl border border-white/[0.08] bg-white/[0.025] p-5">
+            <div className="mb-4 flex items-center justify-between text-xs text-zinc-500"><span>Pipeline</span><span className="font-mono text-zinc-600">01 / 04</span></div>
+            <div className="flex items-center gap-2 text-xs"><span className="rounded-lg bg-cyan-300/10 px-2.5 py-2 text-cyan-200">NIM</span><ArrowRight size={13} className="text-zinc-700" /><span className="rounded-lg bg-white/[0.06] px-2.5 py-2 text-zinc-200">Shield</span><ArrowRight size={13} className="text-zinc-700" /><span className="rounded-lg bg-white/[0.06] px-2.5 py-2 text-zinc-200">Razorpay</span></div>
           </div>
         </section>
 
-        {/* Pending Human Approvals Queue */}
-        {pendingApprovals.length > 0 && (
-          <section className="space-y-4 p-6 rounded-2xl bg-amber-950/20 border border-amber-500/30 shadow-lg">
-            <div className="flex items-center justify-between">
-              <h2 className="text-base font-bold text-amber-300 flex items-center gap-2 m-0">
-                <UserCheck className="w-5 h-5 text-amber-400" />
-                Human Review Queue ({pendingApprovals.length} Action Required)
-              </h2>
-              <span className="text-xs text-amber-400/80">
-                These requests are held in PENDING state with reserved spend until authorized by an operator
-              </span>
-            </div>
+        <section className="grid gap-4 sm:grid-cols-3">
+          <Metric label="Active spend" value={`₹${(session?.total_active_spend ?? 0).toLocaleString()}`} detail={session?.policy?.max_session_spend ? `of ₹${session.policy.max_session_spend.toLocaleString()} cap` : 'no cap'} />
+          <Metric label="Reserved" value={`₹${(session?.reserved_spend ?? 0).toLocaleString()}`} detail="held for review / execution" />
+          <Metric label="Intent" value={session?.intent?.category ?? 'not configured'} detail={session?.intent?.purpose ?? 'Create a session to begin'} />
+        </section>
+        <div className="h-1 overflow-hidden rounded-full bg-white/[0.06]"><div className="h-full rounded-full bg-cyan-300 transition-all duration-700" style={{ width: `${spendPercent}%` }} /></div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {pendingApprovals.map((appr) => (
-                <div
-                  key={appr.approval_id}
-                  className="p-4 rounded-xl bg-slate-900/90 border border-amber-500/40 flex flex-col justify-between space-y-3"
-                >
-                  <div>
-                    <div className="flex items-center justify-between">
-                      <span className="text-xs font-mono text-amber-400 font-bold bg-amber-950/80 px-2 py-0.5 rounded border border-amber-800">
-                        REVIEW REQUIRED
-                      </span>
-                      <span className="text-xs font-mono text-slate-400">{appr.approval_id}</span>
-                    </div>
-                    <div className="mt-2 space-y-1">
-                      <div className="text-sm font-semibold text-white">
-                        {appr.tool_name} (₹{appr.amount?.toLocaleString() ?? 0} {appr.currency})
-                      </div>
-                      <div className="text-xs text-slate-400">
-                        Arguments: {JSON.stringify(appr.arguments)}
-                      </div>
-                      <div className="text-xs text-amber-300">
-                        Reasons: {appr.reasons.join(', ')}
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="flex items-center gap-2 pt-2 border-t border-slate-800">
-                    <button
-                      onClick={() => handleApprove(appr.approval_id)}
-                      disabled={reviewingId === appr.approval_id}
-                      className="flex-1 bg-emerald-600 hover:bg-emerald-500 text-white font-medium py-1.5 px-3 rounded-lg text-xs transition flex items-center justify-center gap-1.5"
-                    >
-                      {reviewingId === appr.approval_id ? (
-                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                      ) : (
-                        <CheckCircle2 className="w-3.5 h-3.5" />
-                      )}
-                      Authorize & Execute
-                    </button>
-                    <button
-                      onClick={() => handleReject(appr.approval_id)}
-                      disabled={reviewingId === appr.approval_id}
-                      className="flex-1 bg-rose-600/80 hover:bg-rose-500 text-white font-medium py-1.5 px-3 rounded-lg text-xs transition flex items-center justify-center gap-1.5"
-                    >
-                      <XCircle className="w-3.5 h-3.5" />
-                      Reject & Cancel
-                    </button>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </section>
-        )}
-
-        {/* Live Attack & Scenarios Tester */}
-        <section className="space-y-4">
-          <div className="flex items-center justify-between">
-            <h2 className="text-lg font-bold text-white flex items-center gap-2 m-0">
-              <Zap className="w-5 h-5 text-amber-400" />
-              Interactive Security Demonstrations
-            </h2>
-            <span className="text-xs text-slate-400">
-              Trigger agent tool requests through the AgentShield trust boundary
-            </span>
+        <section className="grid gap-5 lg:grid-cols-[1fr_0.85fr]">
+          <div className="rounded-2xl border border-cyan-300/20 bg-gradient-to-br from-cyan-300/[0.08] to-transparent p-6 shadow-2xl shadow-cyan-950/20">
+            <div className="mb-5 flex items-start justify-between"><div><div className="text-xs font-medium text-cyan-200">Agent command</div><h2 className="mt-2 text-xl font-semibold tracking-tight">What should the agent buy?</h2></div><Zap size={18} className="text-cyan-300" /></div>
+            <form onSubmit={runAgentRequest} className="space-y-3"><textarea value={prompt} onChange={(e) => setPrompt(e.target.value)} rows={3} className="w-full resize-none rounded-xl border border-white/10 bg-black/20 p-4 text-sm leading-6 text-white outline-none transition placeholder:text-zinc-600 focus:border-cyan-300/50 focus:ring-4 focus:ring-cyan-300/10" placeholder="Describe the user's request..." /><button disabled={busy || !prompt.trim()} className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-white px-4 py-3 text-sm font-semibold text-black transition hover:bg-cyan-100 disabled:cursor-not-allowed disabled:opacity-50">{busy ? 'Evaluating request…' : <><Play size={15} />Run through AgentShield</>}</button></form>
           </div>
-
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
-            {/* Scenario 1: Allowed Action */}
-            <button
-              onClick={() =>
-                handleDemoRun('valid_order', 'create_order', {
-                  amount: 1500,
-                  category: 'footwear',
-                  purpose: 'running shoes',
-                })
-              }
-              disabled={loading}
-              className="p-4 rounded-xl text-left bg-slate-900/80 hover:bg-slate-850 border border-emerald-500/30 hover:border-emerald-500/60 transition group shadow-sm flex flex-col justify-between"
-            >
-              <div>
-                <div className="flex items-center justify-between mb-2">
-                  <span className="text-xs font-semibold px-2 py-0.5 rounded bg-emerald-950 text-emerald-400 border border-emerald-800">
-                    ALLOW
-                  </span>
-                  {executingDemo === 'valid_order' ? (
-                    <Loader2 className="w-4 h-4 text-emerald-400 animate-spin" />
-                  ) : (
-                    <Play className="w-4 h-4 text-emerald-400 group-hover:translate-x-0.5 transition" />
-                  )}
-                </div>
-                <h3 className="text-sm font-semibold text-white mb-1">1. Valid Purchase</h3>
-                <p className="text-xs text-slate-400 leading-relaxed">
-                  Buy running shoes for ₹1,500. Matches intent, policy, and session budget.
-                </p>
-              </div>
-              <div className="mt-3 text-[11px] font-mono text-emerald-400/80">
-                Risk: LOW (0.00)
-              </div>
-            </button>
-
-            {/* Scenario 2: Semantic Prompt Injection */}
-            <button
-              onClick={() =>
-                handleDemoRun('prompt_injection', 'create_order', {
-                  amount: 4999,
-                  category: 'gift_card',
-                  purpose: 'digital gift card voucher',
-                })
-              }
-              disabled={loading}
-              className="p-4 rounded-xl text-left bg-slate-900/80 hover:bg-slate-850 border border-rose-500/30 hover:border-rose-500/60 transition group shadow-sm flex flex-col justify-between"
-            >
-              <div>
-                <div className="flex items-center justify-between mb-2">
-                  <span className="text-xs font-semibold px-2 py-0.5 rounded bg-rose-950 text-rose-400 border border-rose-800">
-                    BLOCK
-                  </span>
-                  {executingDemo === 'prompt_injection' ? (
-                    <Loader2 className="w-4 h-4 text-rose-400 animate-spin" />
-                  ) : (
-                    <Play className="w-4 h-4 text-rose-400 group-hover:translate-x-0.5 transition" />
-                  )}
-                </div>
-                <h3 className="text-sm font-semibold text-white mb-1">2. Prompt Injection</h3>
-                <p className="text-xs text-slate-400 leading-relaxed">
-                  Agent purchases a ₹4,999 gift card instead of authorized running shoes.
-                </p>
-              </div>
-              <div className="mt-3 text-[11px] font-mono text-rose-400/80">
-                Risk: CRITICAL (Category Mismatch)
-              </div>
-            </button>
-
-            {/* Scenario 3: Human Review Required */}
-            <button
-              onClick={() =>
-                handleDemoRun('human_review', 'create_order', {
-                  amount: 3500,
-                  category: 'footwear',
-                  purpose: 'running shoes',
-                })
-              }
-              disabled={loading}
-              className="p-4 rounded-xl text-left bg-slate-900/80 hover:bg-slate-850 border border-amber-500/30 hover:border-amber-500/60 transition group shadow-sm flex flex-col justify-between"
-            >
-              <div>
-                <div className="flex items-center justify-between mb-2">
-                  <span className="text-xs font-semibold px-2 py-0.5 rounded bg-amber-950 text-amber-400 border border-amber-800">
-                    REVIEW
-                  </span>
-                  {executingDemo === 'human_review' ? (
-                    <Loader2 className="w-4 h-4 text-amber-400 animate-spin" />
-                  ) : (
-                    <Play className="w-4 h-4 text-amber-400 group-hover:translate-x-0.5 transition" />
-                  )}
-                </div>
-                <h3 className="text-sm font-semibold text-white mb-1">3. High-Value Order</h3>
-                <p className="text-xs text-slate-400 leading-relaxed">
-                  ₹3,500 purchase exceeds ₹3,000 threshold. Holds in PENDING for operator review.
-                </p>
-              </div>
-              <div className="mt-3 text-[11px] font-mono text-amber-400/80">
-                Decision: REVIEW (Human Gate)
-              </div>
-            </button>
-
-            {/* Scenario 4: Aggregate Limit Breach */}
-            <button
-              onClick={() =>
-                handleDemoRun('aggregate_spend', 'create_order', {
-                  amount: 8000,
-                  category: 'footwear',
-                  purpose: 'running shoes',
-                })
-              }
-              disabled={loading}
-              className="p-4 rounded-xl text-left bg-slate-900/80 hover:bg-slate-850 border border-rose-500/30 hover:border-rose-500/60 transition group shadow-sm flex flex-col justify-between"
-            >
-              <div>
-                <div className="flex items-center justify-between mb-2">
-                  <span className="text-xs font-semibold px-2 py-0.5 rounded bg-rose-950 text-rose-400 border border-rose-800">
-                    AGGREGATE CAP
-                  </span>
-                  {executingDemo === 'aggregate_spend' ? (
-                    <Loader2 className="w-4 h-4 text-rose-400 animate-spin" />
-                  ) : (
-                    <Play className="w-4 h-4 text-rose-400 group-hover:translate-x-0.5 transition" />
-                  )}
-                </div>
-                <h3 className="text-sm font-semibold text-white mb-1">4. Budget Breach</h3>
-                <p className="text-xs text-slate-400 leading-relaxed">
-                  Attempt ₹8,000 order. Multiple allowed purchases breach ₹10k session cap.
-                </p>
-              </div>
-              <div className="mt-3 text-[11px] font-mono text-rose-400/80">
-                Risk: CRITICAL (Max Session Spend)
-              </div>
-            </button>
-
-            {/* Scenario 5: Velocity Burst */}
-            <button
-              onClick={handleVelocityBurst}
-              disabled={loading}
-              className="p-4 rounded-xl text-left bg-slate-900/80 hover:bg-slate-850 border border-purple-500/30 hover:border-purple-500/60 transition group shadow-sm flex flex-col justify-between"
-            >
-              <div>
-                <div className="flex items-center justify-between mb-2">
-                  <span className="text-xs font-semibold px-2 py-0.5 rounded bg-purple-950 text-purple-400 border border-purple-800">
-                    VELOCITY
-                  </span>
-                  {executingDemo === 'velocity_burst' ? (
-                    <Loader2 className="w-4 h-4 text-purple-400 animate-spin" />
-                  ) : (
-                    <Play className="w-4 h-4 text-purple-400 group-hover:translate-x-0.5 transition" />
-                  )}
-                </div>
-                <h3 className="text-sm font-semibold text-white mb-1">5. Burst Anomaly</h3>
-                <p className="text-xs text-slate-400 leading-relaxed">
-                  Fire 5 rapid consecutive orders. Exceeds frequency limit (4 req/60s).
-                </p>
-              </div>
-              <div className="mt-3 text-[11px] font-mono text-purple-400/80">
-                Risk: CRITICAL (Velocity Exceeded)
-              </div>
-            </button>
-          </div>
-
-          {/* Last Execution Live Response Banner */}
-          {lastResult && (
-            <div className={`p-4 rounded-xl border flex flex-col md:flex-row items-start md:items-center justify-between gap-4 transition ${
-              lastResult.decision === 'ALLOW'
-                ? 'bg-emerald-950/40 border-emerald-600/40 text-emerald-200'
-                : lastResult.decision === 'REVIEW'
-                ? 'bg-amber-950/40 border-amber-600/40 text-amber-200'
-                : 'bg-rose-950/40 border-rose-600/40 text-rose-200'
-            }`}>
-              <div className="flex items-center gap-3">
-                {lastResult.decision === 'ALLOW' ? (
-                  <ShieldCheck className="w-6 h-6 text-emerald-400 shrink-0" />
-                ) : lastResult.decision === 'REVIEW' ? (
-                  <UserCheck className="w-6 h-6 text-amber-400 shrink-0" />
-                ) : (
-                  <ShieldAlert className="w-6 h-6 text-rose-400 shrink-0" />
-                )}
-                <div>
-                  <div className="flex items-center gap-2">
-                    <span className="font-bold text-base">
-                      DECISION: {lastResult.decision}
-                    </span>
-                    <span className="text-xs px-2 py-0.5 rounded bg-slate-900 border border-slate-700 font-mono">
-                      Risk Level: {lastResult.risk_level || (lastResult.risk_score > 0.5 ? 'CRITICAL' : 'LOW')} ({lastResult.risk_score ?? 0})
-                    </span>
-                    {lastResult.approval_id && (
-                      <span className="text-xs text-amber-300 font-mono bg-amber-950/60 px-2 py-0.5 rounded border border-amber-800">
-                        Held for Review: {lastResult.approval_id}
-                      </span>
-                    )}
-                    {lastResult.transaction_id && (
-                      <span className="text-xs text-slate-400 font-mono">
-                        {lastResult.transaction_id}
-                      </span>
-                    )}
-                  </div>
-                  {lastResult.reasons?.length > 0 && (
-                    <p className="text-xs text-slate-300 mt-0.5">
-                      Reasons: {lastResult.reasons.join(', ')}
-                    </p>
-                  )}
-                  {lastResult.policy_violations?.length > 0 && (
-                    <p className="text-xs text-rose-300 mt-0.5">
-                      Violations: {lastResult.policy_violations.map((v: any) => `${v.rule} (actual: ${v.actual}, limit: ${v.limit})`).join(' | ')}
-                    </p>
-                  )}
-                </div>
-              </div>
-
-              {lastResult.provider_result?.order && (
-                <div className="text-xs font-mono bg-slate-900/80 px-3 py-1.5 rounded-lg border border-slate-700 text-slate-300">
-                  Provider Order: {lastResult.provider_result.order.id} (Status: {lastResult.provider_result.order.status})
-                </div>
-              )}
-            </div>
-          )}
+          <div className="rounded-2xl border border-white/[0.08] bg-white/[0.025] p-6"><div className="mb-5 flex items-center justify-between"><h2 className="text-sm font-medium">Decision trace</h2><LockKeyhole size={15} className="text-zinc-600" /></div>{!result ? <Empty text="Your model proposal and final authorization will appear here." /> : result.error ? <div className="rounded-xl border border-rose-400/20 bg-rose-400/10 p-4 text-sm text-rose-200">{result.error}</div> : <div className="space-y-4 text-sm"><Trace label="Model proposed" value={proposal?.tool_name ?? 'direct tool call'} mono /><pre className="max-h-24 overflow-auto rounded-xl bg-black/30 p-3 text-xs text-zinc-400">{JSON.stringify(proposal?.arguments ?? execution?.provider_result, null, 2)}</pre><Trace label="AgentShield decision" value={execution?.decision ?? result.decision} badge /><Trace label="Risk" value={`${execution?.risk_level ?? '—'} · ${execution?.risk_score ?? '—'}`} /><div className="border-t border-white/[0.07] pt-3 text-xs text-zinc-500">{execution?.reasons?.join(' · ') || 'No violations. Provider was authorized.'}</div></div>}</div>
         </section>
 
-        {/* Live Audit Stream & Custom Sandbox */}
-        <section className="space-y-4">
-          <div className="flex items-center justify-between border-b border-slate-800 pb-3">
-            <h2 className="text-lg font-bold text-white flex items-center gap-2 m-0">
-              <Layers className="w-5 h-5 text-blue-400" />
-              Live Security Audit Trail
-            </h2>
-            <span className="text-xs text-slate-400">
-              Showing newest security decision logs ({auditEvents.length} events, {transactions.length} transactions)
-            </span>
-          </div>
+        <section><div className="mb-4 flex items-end justify-between"><div><div className="text-xs font-medium text-zinc-500">Proof, not decoration</div><h2 className="mt-1 text-lg font-semibold">Security scenarios</h2></div><span className="text-xs text-zinc-600">Each request crosses the same boundary</span></div><div className="grid gap-3 md:grid-cols-3"><Scenario title="Valid purchase" description="Footwear, ₹1,500 · should allow" tone="emerald" onClick={() => runScenario('valid purchase', { amount: 1500, currency: 'INR', category: 'footwear', purpose: 'running shoes' })} /><Scenario title="Prompt injection" description="Gift card disguised as footwear · should block" tone="rose" onClick={() => runScenario('prompt injection', { amount: 4999, currency: 'INR', category: 'gift_card', purpose: 'gift' })} /><Scenario title="High-value order" description="₹4,000 · enters human review" tone="amber" onClick={() => runScenario('high-value order', { amount: 4000, currency: 'INR', category: 'footwear', purpose: 'running shoes' })} /></div></section>
 
-          <div className="overflow-x-auto rounded-xl border border-slate-800 bg-slate-950/60">
-            <table className="w-full text-left text-xs text-slate-300">
-              <thead className="bg-slate-900/80 text-slate-400 uppercase font-mono text-[10px] tracking-wider border-b border-slate-800">
-                <tr>
-                  <th className="py-3 px-4">Time</th>
-                  <th className="py-3 px-4">Decision</th>
-                  <th className="py-3 px-4">Risk Level</th>
-                  <th className="py-3 px-4">Tool & Args</th>
-                  <th className="py-3 px-4">Violation / Reasons</th>
-                  <th className="py-3 px-4">Transaction / Provider</th>
-                  <th className="py-3 px-4 text-right">Inspect</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-800/60 font-mono">
-                {auditEvents.length === 0 ? (
-                  <tr>
-                    <td colSpan={7} className="py-8 text-center text-slate-500">
-                      No security audit events recorded yet. Run a demonstration above!
-                    </td>
-                  </tr>
-                ) : (
-                  auditEvents.map((event) => (
-                    <tr
-                      key={event.event_id}
-                      className="hover:bg-slate-900/40 transition cursor-pointer"
-                      onClick={() => setSelectedEvent(event)}
-                    >
-                      <td className="py-3 px-4 text-slate-400 whitespace-nowrap">
-                        {new Date(event.timestamp).toLocaleTimeString()}
-                      </td>
-                      <td className="py-3 px-4 whitespace-nowrap">
-                        <span
-                          className={`px-2 py-0.5 rounded text-[11px] font-bold ${
-                            event.decision === 'ALLOW'
-                              ? 'bg-emerald-950 text-emerald-400 border border-emerald-800'
-                              : event.decision === 'REVIEW'
-                              ? 'bg-amber-950 text-amber-400 border border-amber-800'
-                              : 'bg-rose-950 text-rose-400 border border-rose-800'
-                          }`}
-                        >
-                          {event.decision}
-                        </span>
-                      </td>
-                      <td className="py-3 px-4 whitespace-nowrap">
-                        <span
-                          className={`px-2 py-0.5 rounded text-[10px] ${
-                            event.risk_level === 'CRITICAL'
-                              ? 'bg-red-950 text-red-300 border border-red-800'
-                              : event.risk_level === 'HIGH'
-                              ? 'bg-orange-950 text-orange-300 border border-orange-800'
-                              : event.risk_level === 'MEDIUM'
-                              ? 'bg-amber-950 text-amber-300 border border-amber-800'
-                              : 'bg-emerald-950 text-emerald-300 border border-emerald-800'
-                          }`}
-                        >
-                          {event.risk_level || 'LOW'} ({event.risk_score.toFixed(2)})
-                        </span>
-                      </td>
-                      <td className="py-3 px-4 font-sans text-xs">
-                        <span className="font-mono text-blue-300 font-semibold">{event.tool_name}</span>
-                        <span className="text-slate-400 ml-1">
-                          ({JSON.stringify(event.arguments).slice(0, 32)}...)
-                        </span>
-                      </td>
-                      <td className="py-3 px-4 text-xs font-sans">
-                        {event.reasons.length > 0 ? (
-                          <span className="text-rose-300 font-medium">
-                            {event.reasons.join(', ')}
-                          </span>
-                        ) : (
-                          <span className="text-emerald-400 text-[11px]">Clean / Policy Compliant</span>
-                        )}
-                      </td>
-                      <td className="py-3 px-4 text-slate-400 whitespace-nowrap text-[11px]">
-                        {event.transaction_id ?? '-'}
-                      </td>
-                      <td className="py-3 px-4 text-right">
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setSelectedEvent(event);
-                          }}
-                          className="p-1 rounded hover:bg-slate-800 text-slate-400 hover:text-slate-200"
-                        >
-                          <ChevronRight className="w-4 h-4" />
-                        </button>
-                      </td>
-                    </tr>
-                  ))
-                )}
-              </tbody>
-            </table>
-          </div>
-        </section>
+        {approvals.length > 0 && <section className="rounded-2xl border border-amber-300/20 bg-amber-300/[0.05] p-6"><div className="mb-5 flex items-center gap-3"><UserCheck size={17} className="text-amber-300" /><div><h2 className="text-sm font-semibold text-amber-100">Human review required</h2><p className="mt-1 text-xs text-amber-200/50">Spend is reserved. No provider call has happened.</p></div></div><div className="space-y-2">{approvals.map((approval) => <div key={approval.approval_id} className="flex flex-col gap-4 rounded-xl border border-white/[0.07] bg-black/20 p-4 sm:flex-row sm:items-center sm:justify-between"><div><div className="text-sm font-medium">{approval.tool_name} · ₹{approval.amount?.toLocaleString() ?? 0}</div><div className="mt-1 text-xs text-zinc-500">{approval.reasons.join(' · ')}</div></div><div className="flex gap-2"><button disabled={reviewing === approval.approval_id} onClick={() => review(approval.approval_id, 'approve')} className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-400/10 px-3 py-2 text-xs font-medium text-emerald-300 transition hover:bg-emerald-400/20"><Check size={14} />Approve</button><button disabled={reviewing === approval.approval_id} onClick={() => review(approval.approval_id, 'reject')} className="inline-flex items-center gap-1.5 rounded-lg bg-rose-400/10 px-3 py-2 text-xs font-medium text-rose-300 transition hover:bg-rose-400/20"><X size={14} />Reject</button></div></div>)}</div></section>}
 
-        {/* Custom Execution Form Sandbox */}
-        <section className="p-6 rounded-2xl bg-slate-950/70 border border-slate-800/80 shadow-md">
-          <div className="flex items-center gap-2 mb-4">
-            <Code className="w-5 h-5 text-blue-400" />
-            <h3 className="text-base font-bold text-white m-0">Custom Tool Call Sandbox</h3>
-          </div>
-
-          <form onSubmit={handleCustomExecute} className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
-            <div>
-              <label className="block text-xs text-slate-400 mb-1">Tool Name</label>
-              <select
-                value={customTool}
-                onChange={(e) => setCustomTool(e.target.value)}
-                className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-xs text-white"
-              >
-                <option value="create_order">create_order</option>
-                <option value="fetch_order">fetch_order</option>
-                <option value="create_payout">create_payout (Disallowed)</option>
-              </select>
-            </div>
-
-            <div>
-              <label className="block text-xs text-slate-400 mb-1">Amount (INR)</label>
-              <input
-                type="number"
-                value={customAmount}
-                onChange={(e) => setCustomAmount(e.target.value)}
-                className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-xs text-white font-mono"
-                placeholder="3500"
-              />
-            </div>
-
-            <div>
-              <label className="block text-xs text-slate-400 mb-1">Category</label>
-              <input
-                type="text"
-                value={customCategory}
-                onChange={(e) => setCustomCategory(e.target.value)}
-                className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-xs text-white"
-                placeholder="footwear"
-              />
-            </div>
-
-            <div>
-              <label className="block text-xs text-slate-400 mb-1">Purpose / Recipient</label>
-              <input
-                type="text"
-                value={customPurpose || customRecipient}
-                onChange={(e) => {
-                  setCustomPurpose(e.target.value);
-                  setCustomRecipient(e.target.value);
-                }}
-                className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-xs text-white"
-                placeholder="running shoes"
-              />
-            </div>
-
-            <div className="flex items-end">
-              <button
-                type="submit"
-                disabled={loading}
-                className="w-full bg-blue-600 hover:bg-blue-500 text-white font-medium py-2 px-4 rounded-lg text-xs transition flex items-center justify-center gap-2"
-              >
-                <Play className="w-3.5 h-3.5" />
-                Execute Tool
-              </button>
-            </div>
-          </form>
-        </section>
+        <section className="grid gap-5 lg:grid-cols-[1fr_0.8fr]"><div className="rounded-2xl border border-white/[0.08] bg-white/[0.025] p-6"><div className="mb-5 flex items-center justify-between"><div><div className="text-xs text-zinc-500">Immutable trail</div><h2 className="mt-1 text-sm font-semibold">Recent activity</h2></div><button onClick={() => void refresh()} className="rounded-lg p-2 text-zinc-500 transition hover:bg-white/[0.06] hover:text-white"><RefreshCw size={15} /></button></div>{events.length === 0 ? <Empty text="No security events yet." /> : <div className="space-y-1">{events.slice(0, 8).map((event) => <div key={event.event_id} className="flex items-center justify-between gap-4 rounded-xl px-3 py-3 transition hover:bg-white/[0.04]"><div className="flex min-w-0 items-center gap-3"><span className={`grid h-7 w-7 shrink-0 place-items-center rounded-lg border ${decisionTone(event.decision)}`}>{event.decision === 'ALLOW' ? <Check size={13} /> : event.decision === 'REVIEW' ? <CircleAlert size={13} /> : <X size={13} />}</span><div className="min-w-0"><div className="truncate text-xs font-medium">{event.tool_name}</div><div className="truncate text-[11px] text-zinc-600">{event.reasons.join(' · ') || event.transaction_status || 'evaluated'}</div></div></div><span className={`shrink-0 rounded-md border px-2 py-1 text-[10px] font-semibold ${decisionTone(event.decision)}`}>{event.decision}</span></div>)}</div>}</div><div className="rounded-2xl border border-white/[0.08] bg-white/[0.025] p-6"><div className="mb-5 flex items-center gap-2"><Activity size={15} className="text-cyan-300" /><h2 className="text-sm font-semibold">Boundary status</h2></div><div className="space-y-4"><Status label="Policy" value={session?.policy ? 'enforcing' : 'not configured'} /><Status label="Intent" value={session?.intent ? 'authorized' : 'not configured'} /><Status label="Spend lock" value={`${session?.reserved_spend ?? 0} reserved`} /><Status label="Audit" value={`${events.length} recent events`} /></div></div></section>
       </main>
-
-      {/* Audit Detail Modal Drawer */}
-      {selectedEvent && (
-        <div className="fixed inset-0 bg-black/70 backdrop-blur-xs flex items-center justify-center p-4 z-50">
-          <div className="bg-[#0f172a] border border-slate-700 rounded-2xl w-full max-w-2xl max-h-[85vh] overflow-hidden flex flex-col shadow-2xl">
-            <div className="p-4 border-b border-slate-800 flex items-center justify-between bg-slate-900/80">
-              <div className="flex items-center gap-2">
-                <FileText className="w-5 h-5 text-blue-400" />
-                <h3 className="font-bold text-white text-sm m-0">
-                  Audit Event: {selectedEvent.event_id}
-                </h3>
-              </div>
-              <button
-                onClick={() => setSelectedEvent(null)}
-                className="p-1 rounded-lg hover:bg-slate-800 text-slate-400 hover:text-white"
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-
-            <div className="p-6 overflow-y-auto space-y-4 text-xs font-mono">
-              <div className="grid grid-cols-2 gap-3 bg-slate-950 p-3 rounded-lg border border-slate-800">
-                <div>
-                  <span className="text-slate-500">Decision:</span>{' '}
-                  <span className={
-                    selectedEvent.decision === 'ALLOW'
-                      ? 'text-emerald-400 font-bold'
-                      : selectedEvent.decision === 'REVIEW'
-                      ? 'text-amber-400 font-bold'
-                      : 'text-rose-400 font-bold'
-                  }>
-                    {selectedEvent.decision}
-                  </span>
-                </div>
-                <div>
-                  <span className="text-slate-500">Risk Level:</span>{' '}
-                  <span className="text-amber-300 font-bold">{selectedEvent.risk_level} ({selectedEvent.risk_score})</span>
-                </div>
-                <div>
-                  <span className="text-slate-500">Session ID:</span>{' '}
-                  <span className="text-slate-300">{selectedEvent.session_id}</span>
-                </div>
-                <div>
-                  <span className="text-slate-500">Timestamp:</span>{' '}
-                  <span className="text-slate-300">{selectedEvent.timestamp}</span>
-                </div>
-              </div>
-
-              <div>
-                <h4 className="text-slate-400 uppercase text-[10px] tracking-wider mb-1 font-bold">Raw Audit Event Payload</h4>
-                <pre className="bg-[#090d16] p-4 rounded-xl border border-slate-800/80 text-emerald-300 overflow-x-auto text-[11px] leading-relaxed">
-                  {JSON.stringify(selectedEvent, null, 2)}
-                </pre>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
+      <footer className="border-t border-white/[0.07] px-6 py-5 text-center text-[11px] text-zinc-600">AgentShield · The agent may request an action. The agent never authorizes its own action.</footer>
     </div>
   );
 }
+
+function Metric({ label, value, detail }: { label: string; value: string; detail: string }) { return <div className="rounded-2xl border border-white/[0.08] bg-white/[0.025] p-5"><div className="text-xs text-zinc-500">{label}</div><div className="mt-2 text-2xl font-semibold tracking-tight text-white">{value}</div><div className="mt-1 truncate text-xs text-zinc-600">{detail}</div></div>; }
+function Trace({ label, value, mono, badge }: { label: string; value: string; mono?: boolean; badge?: boolean }) { return <div className="flex items-center justify-between gap-4"><span className="text-xs text-zinc-500">{label}</span><span className={badge ? `rounded-md border px-2 py-1 text-xs font-semibold ${decisionTone(value)}` : mono ? 'font-mono text-xs text-cyan-300' : 'text-xs text-zinc-300'}>{value}</span></div>; }
+function Status({ label, value }: { label: string; value: string }) { return <div className="flex items-center justify-between border-b border-white/[0.06] pb-3 text-xs"><span className="text-zinc-500">{label}</span><span className="text-zinc-300">{value}</span></div>; }
+function Empty({ text }: { text: string }) { return <div className="flex min-h-24 items-center justify-center text-center text-xs leading-5 text-zinc-600">{text}</div>; }
+function Scenario({ title, description, tone, onClick }: { title: string; description: string; tone: 'emerald' | 'rose' | 'amber'; onClick: () => void }) { const colors = { emerald: 'border-emerald-400/20 hover:border-emerald-400/50', rose: 'border-rose-400/20 hover:border-rose-400/50', amber: 'border-amber-400/20 hover:border-amber-400/50' }; return <button onClick={onClick} className={`group rounded-2xl border bg-white/[0.025] p-5 text-left transition duration-300 hover:-translate-y-0.5 hover:bg-white/[0.05] ${colors[tone]}`}><div className="mb-6 flex items-center justify-between"><span className="text-sm font-medium">{title}</span><ArrowRight size={15} className="text-zinc-600 transition group-hover:translate-x-1 group-hover:text-white" /></div><p className="m-0 text-xs leading-5 text-zinc-500">{description}</p></button>; }
+
+export default App;

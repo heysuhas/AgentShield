@@ -163,3 +163,19 @@ export async function rejectReview(
   }
   return res.json();
 }
+
+export async function runAgent(
+  sessionId: string,
+  userPrompt: string
+): Promise<any> {
+  const res = await fetch(`${API_BASE}/agent/run`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ session_id: sessionId, user_prompt: userPrompt }),
+  });
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    throw new Error(body.detail || `Agent run failed (${res.status})`);
+  }
+  return body;
+}
