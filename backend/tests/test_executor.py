@@ -341,3 +341,97 @@ def test_executor_releases_reserved_spend_on_provider_failure() -> None:
     assert retry_result.provider_result.success is True
     assert shield.get_committed_spend("session_123") == 4500
     assert shield.get_session_spend("session_123") == 4500
+
+
+def test_executor_enforces_intent_validation_and_blocks_semantic_deviation() -> None:
+    """Canonical test: Policy allows tool and amount, but intent category is invalid."""
+    from app.agentshield.intent import AuthorizedIntent
+    from app.agentshield.intent_provider import InMemoryIntentProvider
+
+    mock_payment = MockPaymentProvider()
+    intent_provider = InMemoryIntentProvider(
+        intents={
+            "session_shoes": AuthorizedIntent(
+                category="footwear",
+                purpose="running shoes",
+                max_amount=5000,
+                currency="INR",
+            )
+        }
+    )
+
+    shield = AgentShield(
+        Policy(
+            allowed_tools=frozenset({"create_order"}),
+            max_transaction_amount=5000,
+            max_session_spend=10000,
+        ),
+        payment_provider=mock_payment,
+        intent_provider=intent_provider,
+    )
+
+    # 1. Attacker or misguided agent attempts to buy a gift card for ₹4,999
+    # Policy permits create_order and ₹4,999 <= ₹5,000, but intent demands 'footwear'
+    result = shield.execute_tool(
+        session_id="session_shoes",
+        tool_name="create_order",
+        arguments={
+            "amount": 4999,
+            "currency": "INR",
+            "category": "gift_card",
+        },
+    )
+
+    assert result.decision == "BLOCK"
+    assert result.risk_score >= 0.95
+    assert "INTENT_CATEGORY_MISMATCH" in result.reasons
+    assert result.intent_validation is not None
+    assert result.intent_validation.intent_match is False
+    assert result.intent_validation.category_match is False
+    assert result.provider_result is None
+    assert len(mock_payment._orders) == 0
+    assert shield.get_session_spend("session_shoes") == 0
+
+
+def test_executor_allows_transaction_when_intent_matches() -> None:
+    from app.agentshield.intent import AuthorizedIntent
+    from app.agentshield.intent_provider import InMemoryIntentProvider
+
+    mock_payment = MockPaymentProvider()
+    intent_provider = InMemoryIntentProvider(
+        intents={
+            "session_shoes": AuthorizedIntent(
+                category="footwear",
+                purpose="running shoes",
+                max_amount=5000,
+                currency="INR",
+            )
+        }
+    )
+
+    shield = AgentShield(
+        Policy(
+            allowed_tools=frozenset({"create_order"}),
+            max_transaction_amount=5000,
+        ),
+        payment_provider=mock_payment,
+        intent_provider=intent_provider,
+    )
+
+    result = shield.execute_tool(
+        session_id="session_shoes",
+        tool_name="create_order",
+        arguments={
+            "amount": 4500,
+            "currency": "INR",
+            "category": "footwear",
+        },
+    )
+
+    assert result.decision == "ALLOW"
+    assert result.risk_score == 0.0
+    assert result.intent_validation is not None
+    assert result.intent_validation.intent_match is True
+    assert result.provider_result is not None
+    assert result.provider_result.success is True
+    assert len(mock_payment._orders) == 1

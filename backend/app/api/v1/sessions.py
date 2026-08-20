@@ -2,13 +2,17 @@
 
 from fastapi import APIRouter, HTTPException, status
 
+from app.agentshield.intent import AuthorizedIntent
+from app.agentshield.intent_provider import InMemoryIntentProvider
 from app.agentshield.policy_engine import Policy
 from app.agentshield.policy_provider import InMemoryPolicyProvider
-from app.api.v1.tools import _policy_provider, _shield
+from app.api.v1.tools import _intent_provider, _policy_provider, _shield
 from app.schemas.session import (
     CreateSessionRequest,
+    IntentSchema,
     PolicySchema,
     SessionResponse,
+    SetSessionIntentRequest,
     SetSessionPolicyRequest,
 )
 
@@ -33,13 +37,45 @@ def _to_policy(schema: PolicySchema) -> Policy:
     )
 
 
+def _to_intent_schema(intent: AuthorizedIntent | None) -> IntentSchema | None:
+    if intent is None:
+        return None
+    return IntentSchema(
+        category=intent.category,
+        purpose=intent.purpose,
+        recipient=intent.recipient,
+        merchant=intent.merchant,
+        max_amount=intent.max_amount,
+        currency=intent.currency,
+        allowed_tools=sorted(list(intent.allowed_tools))
+        if intent.allowed_tools
+        else None,
+        constraints=dict(intent.constraints),
+    )
+
+
+def _to_intent(schema: IntentSchema) -> AuthorizedIntent:
+    return AuthorizedIntent(
+        category=schema.category,
+        purpose=schema.purpose,
+        recipient=schema.recipient,
+        merchant=schema.merchant,
+        max_amount=schema.max_amount,
+        currency=schema.currency,
+        allowed_tools=frozenset(schema.allowed_tools)
+        if schema.allowed_tools is not None
+        else None,
+        constraints=dict(schema.constraints),
+    )
+
+
 @router.post(
     "",
     response_model=SessionResponse,
     status_code=status.HTTP_201_CREATED,
 )
 def create_session(request: CreateSessionRequest) -> SessionResponse:
-    """Create a new session with an optional policy."""
+    """Create a new session with an optional policy and intent."""
     if isinstance(_policy_provider, InMemoryPolicyProvider):
         if _policy_provider.has_session(request.session_id):
             raise HTTPException(
@@ -53,11 +89,20 @@ def create_session(request: CreateSessionRequest) -> SessionResponse:
         )
         _policy_provider.set_policy(request.session_id, policy)
 
+    if request.intent is not None and isinstance(
+        _intent_provider, InMemoryIntentProvider
+    ):
+        _intent_provider.set_intent(
+            request.session_id, _to_intent(request.intent)
+        )
+
     policy = _policy_provider.get_policy(request.session_id)
+    intent = _intent_provider.get_intent(request.session_id)
     return SessionResponse(
         session_id=request.session_id,
         status="ACTIVE",
         policy=_to_policy_schema(policy),
+        intent=_to_intent_schema(intent),
         committed_spend=_shield.get_committed_spend(request.session_id),
         reserved_spend=_shield.get_reserved_spend(request.session_id),
         total_active_spend=_shield.get_session_spend(request.session_id),
@@ -66,7 +111,7 @@ def create_session(request: CreateSessionRequest) -> SessionResponse:
 
 @router.get("/{session_id}", response_model=SessionResponse)
 def get_session(session_id: str) -> SessionResponse:
-    """Retrieve session details, active policy, and spend metrics."""
+    """Retrieve session details, active policy, intent, and spend metrics."""
     if (
         isinstance(_policy_provider, InMemoryPolicyProvider)
         and not _policy_provider.has_session(session_id)
@@ -77,10 +122,12 @@ def get_session(session_id: str) -> SessionResponse:
         )
 
     policy = _policy_provider.get_policy(session_id)
+    intent = _intent_provider.get_intent(session_id)
     return SessionResponse(
         session_id=session_id,
         status="ACTIVE",
         policy=_to_policy_schema(policy),
+        intent=_to_intent_schema(intent),
         committed_spend=_shield.get_committed_spend(session_id),
         reserved_spend=_shield.get_reserved_spend(session_id),
         total_active_spend=_shield.get_session_spend(session_id),
@@ -96,10 +143,42 @@ def set_session_policy(
     if isinstance(_policy_provider, InMemoryPolicyProvider):
         _policy_provider.set_policy(session_id, policy)
 
+    intent = _intent_provider.get_intent(session_id)
     return SessionResponse(
         session_id=session_id,
         status="ACTIVE",
         policy=_to_policy_schema(policy),
+        intent=_to_intent_schema(intent),
+        committed_spend=_shield.get_committed_spend(session_id),
+        reserved_spend=_shield.get_reserved_spend(session_id),
+        total_active_spend=_shield.get_session_spend(session_id),
+    )
+
+
+@router.put("/{session_id}/intent", response_model=SessionResponse)
+def set_session_intent(
+    session_id: str, request: SetSessionIntentRequest
+) -> SessionResponse:
+    """Register or update authorized user intent for a session."""
+    if (
+        isinstance(_policy_provider, InMemoryPolicyProvider)
+        and not _policy_provider.has_session(session_id)
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Session '{session_id}' not found",
+        )
+
+    intent = _to_intent(request.intent)
+    if isinstance(_intent_provider, InMemoryIntentProvider):
+        _intent_provider.set_intent(session_id, intent)
+
+    policy = _policy_provider.get_policy(session_id)
+    return SessionResponse(
+        session_id=session_id,
+        status="ACTIVE",
+        policy=_to_policy_schema(policy),
+        intent=_to_intent_schema(intent),
         committed_spend=_shield.get_committed_spend(session_id),
         reserved_spend=_shield.get_reserved_spend(session_id),
         total_active_spend=_shield.get_session_spend(session_id),
@@ -120,10 +199,12 @@ def reset_session_spend(session_id: str) -> SessionResponse:
 
     _shield.reset_session_spend(session_id)
     policy = _policy_provider.get_policy(session_id)
+    intent = _intent_provider.get_intent(session_id)
     return SessionResponse(
         session_id=session_id,
         status="ACTIVE",
         policy=_to_policy_schema(policy),
+        intent=_to_intent_schema(intent),
         committed_spend=0,
         reserved_spend=0,
         total_active_spend=0,
@@ -144,4 +225,6 @@ def delete_session(session_id: str) -> None:
 
     if isinstance(_policy_provider, InMemoryPolicyProvider):
         _policy_provider.remove_policy(session_id)
+    if isinstance(_intent_provider, InMemoryIntentProvider):
+        _intent_provider.remove_intent(session_id)
     _shield.reset_session_spend(session_id)

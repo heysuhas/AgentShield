@@ -5,6 +5,14 @@ from typing import Literal
 from pydantic import BaseModel, Field
 
 from app.agentshield.audit import AuditSink, InMemoryAuditSink
+from app.agentshield.intent import AuthorizedIntent, IntentValidationResult
+from app.agentshield.intent_provider import (
+    InMemoryIntentProvider,
+    IntentProvider,
+)
+from app.agentshield.intent_validator import (
+    validate_intent_deterministically,
+)
 from app.agentshield.policy_engine import (
     Policy,
     PolicyViolation,
@@ -35,6 +43,7 @@ class ExecutionResult(BaseModel):
     risk_score: float = Field(ge=0.0, le=1.0)
     reasons: list[str] = Field(default_factory=list)
     policy_violations: list[PolicyViolation] = Field(default_factory=list)
+    intent_validation: IntentValidationResult | None = None
     provider_result: PaymentResult | None = None
     transaction_id: str | None = None
     transaction_status: TransactionStatus | None = None
@@ -49,6 +58,7 @@ class AgentShield:
         payment_provider: PaymentProvider | None = None,
         transaction_store: TransactionStore | None = None,
         audit_sink: AuditSink | None = None,
+        intent_provider: IntentProvider | None = None,
     ) -> None:
         if isinstance(policy_or_provider, Policy):
             self._provider: PolicyProvider = InMemoryPolicyProvider(
@@ -61,6 +71,9 @@ class AgentShield:
             transaction_store or InMemoryTransactionStore()
         )
         self._audit_sink: AuditSink = audit_sink or InMemoryAuditSink()
+        self._intent_provider: IntentProvider = (
+            intent_provider or InMemoryIntentProvider()
+        )
         self._committed_spend: dict[str, int] = {}
         self._reserved_spend: dict[str, int] = {}
 
@@ -78,6 +91,11 @@ class AgentShield:
     def transaction_store(self) -> TransactionStore:
         """Return the configured transaction store."""
         return self._transaction_store
+
+    @property
+    def intent_provider(self) -> IntentProvider:
+        """Return the configured intent provider."""
+        return self._intent_provider
 
     def get_committed_spend(self, session_id: str) -> int:
         """Return the settled/committed transaction spend for a session."""
@@ -99,13 +117,15 @@ class AgentShield:
         self._reserved_spend.pop(session_id, None)
 
     def reset(self) -> None:
-        """Reset all in-memory spend, transaction store, and audit state."""
+        """Reset all in-memory spend, transaction store, audit, and intent state."""
         self._committed_spend.clear()
         self._reserved_spend.clear()
         if isinstance(self._transaction_store, InMemoryTransactionStore):
             self._transaction_store.reset()
         if isinstance(self._audit_sink, InMemoryAuditSink):
             self._audit_sink.reset()
+        if isinstance(self._intent_provider, InMemoryIntentProvider):
+            self._intent_provider.reset()
 
     def _get_provider_name(self) -> str | None:
         if self._payment_provider is not None:
@@ -188,6 +208,34 @@ class AgentShield:
                 amount=raw_amount,
                 violations=[violation],
             )
+
+        # 2. Intent validation check
+        intent = self._intent_provider.get_intent(session_id)
+        intent_validation: IntentValidationResult | None = None
+        if intent is not None:
+            intent_validation = validate_intent_deterministically(
+                intent,
+                tool_name=tool_name,
+                arguments=dict(arguments),
+            )
+            if not intent_validation.intent_match:
+                violations = [
+                    PolicyViolation(
+                        rule=reason,
+                        actual=str(arguments.get(reason.lower().replace("intent_", "").replace("_mismatch", "").replace("_exceeded", ""), "")),
+                        limit=str(getattr(intent, reason.lower().replace("intent_", "").replace("_mismatch", "").replace("_exceeded", ""), "")),
+                    )
+                    for reason in intent_validation.reasons
+                ]
+                return self._record_and_block(
+                    session_id=session_id,
+                    tool_name=tool_name,
+                    arguments=arguments,
+                    amount=raw_amount,
+                    violations=violations,
+                    risk_score=0.95,
+                    intent_validation=intent_validation,
+                )
 
         # 1. Authorize and create transaction record in AUTHORIZED status
         currency = str(arguments.get("currency", "INR"))
@@ -306,6 +354,7 @@ class AgentShield:
             session_id=session_id,
             tool_name=tool_name,
             risk_score=0.0,
+            intent_validation=intent_validation,
             provider_result=provider_result,
             transaction_id=txn.transaction_id,
             transaction_status=current_status,
@@ -319,6 +368,8 @@ class AgentShield:
         arguments: dict[str, object],
         amount: int | None,
         violations: list[PolicyViolation],
+        risk_score: float = 1.0,
+        intent_validation: IntentValidationResult | None = None,
     ) -> ExecutionResult:
         reasons = [violation.rule for violation in violations]
         txn = self._transaction_store.create(
@@ -339,7 +390,7 @@ class AgentShield:
             tool_name=tool_name,
             arguments=dict(arguments),
             decision="BLOCK",
-            risk_score=1.0,
+            risk_score=risk_score,
             reasons=reasons,
             policy_violations=violations,
             provider_name=self._get_provider_name(),
@@ -350,9 +401,10 @@ class AgentShield:
             decision="BLOCK",
             session_id=session_id,
             tool_name=tool_name,
-            risk_score=1.0,
+            risk_score=risk_score,
             reasons=reasons,
             policy_violations=violations,
+            intent_validation=intent_validation,
             transaction_id=txn.transaction_id,
             transaction_status=TransactionStatus.BLOCKED,
         )

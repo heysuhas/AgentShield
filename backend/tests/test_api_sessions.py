@@ -1,7 +1,12 @@
 import pytest
 from fastapi.testclient import TestClient
 
-from app.api.v1.tools import _payment_provider, _policy_provider, _shield
+from app.api.v1.tools import (
+    _intent_provider,
+    _payment_provider,
+    _policy_provider,
+    _shield,
+)
 from app.main import app
 
 client = TestClient(app)
@@ -12,10 +17,12 @@ def reset_state():
     _shield.reset()
     _payment_provider.reset()
     _policy_provider.reset()
+    _intent_provider.reset()
     yield
     _shield.reset()
     _payment_provider.reset()
     _policy_provider.reset()
+    _intent_provider.reset()
 
 
 def test_create_and_get_session_lifecycle() -> None:
@@ -145,3 +152,68 @@ def test_delete_session() -> None:
     # Getting deleted session returns 404
     get_res = client.get("/api/v1/sessions/del_sess")
     assert get_res.status_code == 404
+
+
+def test_session_intent_lifecycle_and_tool_execution() -> None:
+    # 1. Create session with policy and footwear intent
+    res = client.post(
+        "/api/v1/sessions",
+        json={
+            "session_id": "sneaker_buyer",
+            "policy": {
+                "allowed_tools": ["create_order"],
+                "max_transaction_amount": 5000,
+                "max_session_spend": 10000,
+            },
+            "intent": {
+                "category": "footwear",
+                "purpose": "running shoes",
+                "max_amount": 5000,
+                "currency": "INR",
+            },
+        },
+    )
+    assert res.status_code == 201
+    data = res.json()
+    assert data["intent"]["category"] == "footwear"
+
+    # 2. Attempt prompt-injected or misaligned action (gift card for ₹4,999)
+    # Policy permits create_order and amount ₹4,999 <= ₹5,000, but intent is violated!
+    blocked_res = client.post(
+        "/api/v1/tools/execute",
+        json={
+            "session_id": "sneaker_buyer",
+            "tool_name": "create_order",
+            "arguments": {
+                "amount": 4999,
+                "currency": "INR",
+                "category": "gift_card",
+            },
+        },
+    )
+    assert blocked_res.status_code == 200
+    blocked_data = blocked_res.json()
+    assert blocked_data["decision"] == "BLOCK"
+    assert blocked_data["risk_score"] >= 0.95
+    assert "INTENT_CATEGORY_MISMATCH" in blocked_data["reasons"]
+    assert blocked_data["intent_validation"]["intent_match"] is False
+    assert blocked_data["intent_validation"]["category_match"] is False
+
+    # 3. Authorized matching action (running shoes for ₹4,800)
+    allowed_res = client.post(
+        "/api/v1/tools/execute",
+        json={
+            "session_id": "sneaker_buyer",
+            "tool_name": "create_order",
+            "arguments": {
+                "amount": 4800,
+                "currency": "INR",
+                "category": "footwear",
+            },
+        },
+    )
+    assert allowed_res.status_code == 200
+    allowed_data = allowed_res.json()
+    assert allowed_data["decision"] == "ALLOW"
+    assert allowed_data["intent_validation"]["intent_match"] is True
+    assert allowed_data["transaction_status"] == "SUCCEEDED"

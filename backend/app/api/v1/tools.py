@@ -3,6 +3,7 @@
 from fastapi import APIRouter
 
 from app.agentshield.executor import AgentShield
+from app.agentshield.intent_provider import InMemoryIntentProvider
 from app.agentshield.policy_engine import Policy
 from app.agentshield.policy_provider import InMemoryPolicyProvider
 from app.providers.payments.mock import MockPaymentProvider
@@ -18,10 +19,12 @@ DEMO_POLICY = Policy(
 _policy_provider = InMemoryPolicyProvider(
     policies={"session_123": DEMO_POLICY}
 )
+_intent_provider = InMemoryIntentProvider()
 _payment_provider = MockPaymentProvider()
 _shield = AgentShield(
     policy_or_provider=_policy_provider,
     payment_provider=_payment_provider,
+    intent_provider=_intent_provider,
 )
 
 
@@ -40,6 +43,7 @@ def execute_tool(request: ExecuteToolRequest) -> ExecuteToolResponse:
         risk_score=result.risk_score,
         reasons=result.reasons,
         policy_violations=result.policy_violations,
+        intent_validation=result.intent_validation,
         provider_result=result.provider_result,
         transaction_id=result.transaction_id,
         transaction_status=result.transaction_status,
