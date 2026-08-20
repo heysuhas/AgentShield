@@ -40,4 +40,16 @@ app.include_router(agent_router, prefix="/api/v1")
 
 @app.get("/health")
 def health():
-    return {"status": "ok"}
+    settings = get_settings()
+    has_rzp = bool(settings.RAZORPAY_KEY_ID and settings.RAZORPAY_KEY_SECRET)
+    has_nim = bool(settings.NVIDIA_API_KEY)
+    return {
+        "status": "ok",
+        "provider": settings.PAYMENT_PROVIDER,
+        "razorpay_configured": has_rzp,
+        "razorpay_key_id": settings.RAZORPAY_KEY_ID[:8] + "..." if settings.RAZORPAY_KEY_ID else None,
+        "llm_provider": "nvidia" if has_nim else "none",
+        "nvidia_configured": has_nim,
+        "model": settings.NVIDIA_MODEL,
+        "environment": settings.ENVIRONMENT,
+    }

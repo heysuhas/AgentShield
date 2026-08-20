@@ -220,4 +220,6 @@ def test_api_execute_blocked_unknown_session() -> None:
 def test_health_endpoint_remains_functional() -> None:
     response = client.get("/health")
     assert response.status_code == 200
-    assert response.json() == {"status": "ok"}
+    data = response.json()
+    assert data["status"] == "ok"
+    assert "provider" in data
