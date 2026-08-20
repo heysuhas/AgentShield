@@ -41,4 +41,6 @@ def execute_tool(request: ExecuteToolRequest) -> ExecuteToolResponse:
         reasons=result.reasons,
         policy_violations=result.policy_violations,
         provider_result=result.provider_result,
+        transaction_id=result.transaction_id,
+        transaction_status=result.transaction_status,
     )

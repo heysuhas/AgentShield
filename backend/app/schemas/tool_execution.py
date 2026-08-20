@@ -5,6 +5,7 @@ from typing import Any, Literal
 from pydantic import BaseModel, Field
 
 from app.agentshield.policy_engine import PolicyViolation
+from app.agentshield.transaction import TransactionStatus
 from app.providers.payments.base import PaymentResult
 
 
@@ -26,3 +27,5 @@ class ExecuteToolResponse(BaseModel):
     reasons: list[str] = Field(default_factory=list)
     policy_violations: list[PolicyViolation] = Field(default_factory=list)
     provider_result: PaymentResult | None = None
+    transaction_id: str | None = None
+    transaction_status: TransactionStatus | None = None

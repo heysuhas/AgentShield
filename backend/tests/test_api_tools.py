@@ -9,10 +9,10 @@ client = TestClient(app)
 
 @pytest.fixture(autouse=True)
 def reset_api_shield_state():
-    _shield.reset_session_spend("session_123")
+    _shield.reset()
     _payment_provider.reset()
     yield
-    _shield.reset_session_spend("session_123")
+    _shield.reset()
     _payment_provider.reset()
 
 
@@ -38,6 +38,8 @@ def test_api_execute_allowed_create_order() -> None:
     assert data["provider_result"]["success"] is True
     assert data["provider_result"]["order"]["id"] == "order_mock_000001"
     assert data["provider_result"]["order"]["amount"] == 4999
+    assert data["transaction_id"] == "txn_000001"
+    assert data["transaction_status"] == "SUCCEEDED"
 
 
 def test_api_execute_blocked_disallowed_tool() -> None:
@@ -60,6 +62,8 @@ def test_api_execute_blocked_disallowed_tool() -> None:
     assert len(data["policy_violations"]) == 1
     assert data["policy_violations"][0]["rule"] == "TOOL_NOT_ALLOWED"
     assert data["provider_result"] is None
+    assert data["transaction_id"] == "txn_000001"
+    assert data["transaction_status"] == "BLOCKED"
 
 
 def test_api_execute_blocked_amount_above_limit() -> None:

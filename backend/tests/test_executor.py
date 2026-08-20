@@ -240,3 +240,54 @@ def test_executor_never_invokes_payment_provider_on_blocked_action() -> None:
     assert r3.decision == "BLOCK"
     assert r3.provider_result is None
     assert len(mock_payment._orders) == 0
+
+
+def test_executor_releases_reserved_spend_on_provider_failure() -> None:
+    from app.agentshield.transaction import TransactionStatus
+    from app.providers.payments.mock import MockPaymentProvider
+
+    mock_payment = MockPaymentProvider()
+    shield = AgentShield(
+        Policy(
+            allowed_tools=frozenset({"create_order"}),
+            max_transaction_amount=5000,
+            max_session_spend=5000,
+        ),
+        payment_provider=mock_payment,
+    )
+
+    # 1. Simulate provider failure
+    mock_payment.simulate_failure(error="Razorpay service unavailable")
+
+    failed_result = shield.execute_tool(
+        session_id="session_123",
+        tool_name="create_order",
+        arguments={"amount": 4500},
+    )
+
+    assert failed_result.decision == "ALLOW"
+    assert failed_result.transaction_status == TransactionStatus.FAILED
+    assert failed_result.provider_result is not None
+    assert failed_result.provider_result.success is False
+    assert failed_result.provider_result.error == "Razorpay service unavailable"
+
+    # CRITICAL: Verify reserved spend was released and committed spend remains 0
+    assert shield.get_committed_spend("session_123") == 0
+    assert shield.get_reserved_spend("session_123") == 0
+    assert shield.get_session_spend("session_123") == 0
+
+    # 2. Recover provider - session should still have the full ₹5,000 budget!
+    mock_payment.simulate_success()
+
+    retry_result = shield.execute_tool(
+        session_id="session_123",
+        tool_name="create_order",
+        arguments={"amount": 4500},
+    )
+
+    assert retry_result.decision == "ALLOW"
+    assert retry_result.transaction_status == TransactionStatus.SUCCEEDED
+    assert retry_result.provider_result is not None
+    assert retry_result.provider_result.success is True
+    assert shield.get_committed_spend("session_123") == 4500
+    assert shield.get_session_spend("session_123") == 4500
