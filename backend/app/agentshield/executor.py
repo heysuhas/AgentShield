@@ -175,11 +175,36 @@ class AgentShield:
     def reconcile_stale_reservations(
         self, max_age_seconds: int = 300
     ) -> list[TransactionRecord]:
-        """Reconcile and cancel stale in-flight AUTHORIZED reservations left by crashes or timeouts."""
+        """Reconcile and recover stale in-flight AUTHORIZED reservations against provider state."""
         expired = self._transaction_store.expire_stale_reservations(
             max_age_seconds=max_age_seconds
         )
+        reconciled: list[TransactionRecord] = []
         for txn in expired:
+            if txn.provider_order_id and self._payment_provider:
+                try:
+                    fetch_res = self._payment_provider.fetch_order(
+                        order_id=txn.provider_order_id
+                    )
+                    if fetch_res.success and fetch_res.order:
+                        if fetch_res.order.status in ("paid", "created", "attempted"):
+                            self._audit_sink.create_and_record(
+                                transaction_id=txn.transaction_id,
+                                transaction_status=TransactionStatus.SUCCEEDED,
+                                session_id=txn.session_id,
+                                tool_name=txn.tool_name,
+                                arguments=txn.arguments,
+                                decision="ALLOW",
+                                risk_score=0.1,
+                                reasons=["RECONCILED_FROM_PROVIDER"],
+                                provider_name=self._get_provider_name(),
+                                provider_result=fetch_res,
+                            )
+                            reconciled.append(txn)
+                            continue
+                except Exception:
+                    pass
+
             self._audit_sink.create_and_record(
                 transaction_id=txn.transaction_id,
                 transaction_status=TransactionStatus.CANCELLED,
@@ -190,7 +215,8 @@ class AgentShield:
                 risk_score=0.5,
                 reasons=["RESERVATION_EXPIRED"],
             )
-        return expired
+            reconciled.append(txn)
+        return reconciled
 
     def _get_provider_name(self) -> str | None:
         if self._payment_provider is not None:
@@ -222,15 +248,14 @@ class AgentShield:
             )
 
         raw_amount = arguments.get("amount")
-        if raw_amount is not None and (
-            isinstance(raw_amount, bool)
-            or not isinstance(raw_amount, int)
-            or raw_amount < 0
-        ):
+        if (
+            "amount" in arguments
+            and (isinstance(raw_amount, bool) or not isinstance(raw_amount, int) or raw_amount <= 0)
+        ) or (tool_name == "create_order" and "amount" not in arguments):
             violation = PolicyViolation(
                 rule="INVALID_AMOUNT",
                 actual=str(raw_amount),
-                limit="non-negative integer",
+                limit="positive integer",
             )
             return self._record_and_block(
                 session_id=session_id,
@@ -347,12 +372,12 @@ class AgentShield:
         if self._payment_provider is not None:
             try:
                 if tool_name == "create_order":
-                    receipt = arguments.get("receipt")
+                    receipt = arguments.get("receipt") or txn.transaction_id
                     notes = arguments.get("notes")
                     provider_result = self._payment_provider.create_order(
                         amount=raw_amount if isinstance(raw_amount, int) else 0,
                         currency=currency,
-                        receipt=str(receipt) if receipt is not None else None,
+                        receipt=str(receipt)[:40],
                         notes=dict(notes) if isinstance(notes, dict) else None,
                     )
                 elif tool_name == "fetch_order":
@@ -375,17 +400,30 @@ class AgentShield:
                 )
 
             if provider_result is not None and provider_result.success:
-                current_status = TransactionStatus.SUCCEEDED
                 order_id = (
                     provider_result.order.id
                     if provider_result.order
                     else None
                 )
-                self._transaction_store.update_status(
+                updated = self._transaction_store.update_status(
                     txn.transaction_id,
                     status=TransactionStatus.SUCCEEDED,
                     provider_order_id=order_id,
                 )
+                if updated is None:
+                    # Transaction reservation timed out / was cancelled while provider was executing!
+                    current_status = TransactionStatus.CANCELLED
+                    return ExecutionResult(
+                        decision="BLOCK",
+                        session_id=session_id,
+                        tool_name=tool_name,
+                        risk_score=1.0,
+                        reasons=["TRANSACTION_EXPIRED_DURING_PROVIDER_CALL"],
+                        transaction_id=txn.transaction_id,
+                        transaction_status=TransactionStatus.CANCELLED,
+                        error="Transaction expired during provider execution",
+                    )
+                current_status = TransactionStatus.SUCCEEDED
             elif provider_result is not None and not provider_result.success:
                 current_status = TransactionStatus.FAILED
                 self._transaction_store.update_status(

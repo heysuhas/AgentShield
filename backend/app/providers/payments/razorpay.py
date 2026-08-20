@@ -11,6 +11,17 @@ from app.providers.payments.base import (
 )
 
 
+_CURRENCY_SUBUNITS: dict[str, int] = {
+    "INR": 100,
+    "USD": 100,
+    "EUR": 100,
+    "GBP": 100,
+    "SGD": 100,
+    "AED": 100,
+    "JPY": 1,
+}
+
+
 class RazorpaySandboxProvider:
     """Payment provider interacting with Razorpay's test/sandbox environment."""
 
@@ -42,11 +53,19 @@ class RazorpaySandboxProvider:
                 raw_response={"error": "AUTH_MISSING"},
             )
 
+        norm_curr = currency.upper()
+        if norm_curr not in _CURRENCY_SUBUNITS:
+            return PaymentResult(
+                success=False,
+                error=f"Unsupported currency: {currency}",
+                raw_response={"error": "UNSUPPORTED_CURRENCY"},
+            )
+
+        multiplier = _CURRENCY_SUBUNITS[norm_curr]
         url = f"{self.base_url}/orders"
-        # Razorpay expects amounts in the smallest currency subunit (e.g. paise for INR)
         payload: dict[str, Any] = {
-            "amount": amount * 100,
-            "currency": currency.upper(),
+            "amount": amount * multiplier,
+            "currency": norm_curr,
         }
         if receipt:
             payload["receipt"] = str(receipt)[:40]

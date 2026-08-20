@@ -1,8 +1,6 @@
-"""Transaction lifecycle state model and in-memory store."""
-
 from datetime import datetime, timezone
 from enum import Enum
-from threading import Lock
+from threading import RLock
 from typing import Any, Protocol, runtime_checkable
 
 from pydantic import BaseModel, Field
@@ -18,6 +16,30 @@ class TransactionStatus(str, Enum):
     SUCCEEDED = "SUCCEEDED"
     FAILED = "FAILED"
     CANCELLED = "CANCELLED"
+
+
+VALID_TRANSITIONS: dict[TransactionStatus, set[TransactionStatus]] = {
+    TransactionStatus.REQUESTED: {
+        TransactionStatus.AUTHORIZED,
+        TransactionStatus.BLOCKED,
+        TransactionStatus.CANCELLED,
+    },
+    TransactionStatus.AUTHORIZED: {
+        TransactionStatus.SUCCEEDED,
+        TransactionStatus.FAILED,
+        TransactionStatus.CANCELLED,
+        TransactionStatus.PENDING,
+    },
+    TransactionStatus.PENDING: {
+        TransactionStatus.SUCCEEDED,
+        TransactionStatus.FAILED,
+        TransactionStatus.CANCELLED,
+    },
+    TransactionStatus.BLOCKED: set(),
+    TransactionStatus.SUCCEEDED: set(),
+    TransactionStatus.FAILED: set(),
+    TransactionStatus.CANCELLED: set(),
+}
 
 
 class TransactionRecord(BaseModel):
@@ -122,7 +144,7 @@ class InMemoryTransactionStore:
     def __init__(self) -> None:
         self._transactions: dict[str, TransactionRecord] = {}
         self._counter: int = 0
-        self._reservation_lock = Lock()
+        self._reservation_lock = RLock()
 
     def create(
         self,
@@ -208,22 +230,28 @@ class InMemoryTransactionStore:
         provider_order_id: str | None = None,
         error: str | None = None,
     ) -> TransactionRecord | None:
-        record = self._transactions.get(transaction_id)
-        if not record:
-            return None
+        with self._reservation_lock:
+            record = self._transactions.get(transaction_id)
+            if not record:
+                return None
 
-        update_data: dict[str, Any] = {
-            "status": status,
-            "updated_at": datetime.now(timezone.utc),
-        }
-        if provider_order_id is not None:
-            update_data["provider_order_id"] = provider_order_id
-        if error is not None:
-            update_data["error"] = error
+            # Validate state transition
+            valid_targets = VALID_TRANSITIONS.get(record.status, set())
+            if status != record.status and status not in valid_targets:
+                return None
 
-        updated_record = record.model_copy(update=update_data)
-        self._transactions[transaction_id] = updated_record
-        return updated_record
+            update_data: dict[str, Any] = {
+                "status": status,
+                "updated_at": datetime.now(timezone.utc),
+            }
+            if provider_order_id is not None:
+                update_data["provider_order_id"] = provider_order_id
+            if error is not None:
+                update_data["error"] = error
+
+            updated_record = record.model_copy(update=update_data)
+            self._transactions[transaction_id] = updated_record
+            return updated_record
 
     def list_by_session(self, session_id: str) -> list[TransactionRecord]:
         return [

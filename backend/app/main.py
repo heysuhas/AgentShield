@@ -5,13 +5,17 @@ from fastapi import FastAPI
 from app.api.v1.sessions import router as sessions_router
 from app.api.v1.tools import router as tools_router
 from app.db.session import init_db
+from app.providers.payments.factory import get_payment_provider
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
-    """Initialize database tables and resources on application startup."""
+    """Initialize database tables and resources on application startup, and cleanup on shutdown."""
     init_db()
     yield
+    provider = get_payment_provider()
+    if hasattr(provider, "close"):
+        provider.close()
 
 
 app = FastAPI(

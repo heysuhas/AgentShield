@@ -1,6 +1,7 @@
 """API router for session lifecycle management."""
 
 from fastapi import APIRouter, Depends, HTTPException, status
+from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from app.agentshield.executor import AgentShield
@@ -244,3 +245,51 @@ def delete_session(
     if hasattr(shield.intent_provider, "remove_intent"):
         shield.intent_provider.remove_intent(session_id)
     shield.reset_session_spend(session_id)
+
+
+class ReconcileResponse(BaseModel):
+    reconciled_count: int
+    reconciled_transactions: list[str]
+
+
+@router.post("/reconcile", response_model=ReconcileResponse)
+def reconcile_all_sessions(
+    max_age_seconds: int = 300,
+    shield: AgentShield = Depends(get_shield),
+) -> ReconcileResponse:
+    """Reconcile and recover stale in-flight AUTHORIZED reservations across all sessions."""
+    records = shield.reconcile_stale_reservations(max_age_seconds=max_age_seconds)
+    return ReconcileResponse(
+        reconciled_count=len(records),
+        reconciled_transactions=[r.transaction_id for r in records],
+    )
+
+
+@router.post("/{session_id}/reconcile", response_model=SessionResponse)
+def reconcile_session(
+    session_id: str,
+    max_age_seconds: int = 300,
+    shield: AgentShield = Depends(get_shield),
+) -> SessionResponse:
+    """Reconcile stale reservations and return updated session status."""
+    if (
+        hasattr(shield.policy_provider, "has_session")
+        and not shield.policy_provider.has_session(session_id)
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Session '{session_id}' not found",
+        )
+
+    shield.reconcile_stale_reservations(max_age_seconds=max_age_seconds)
+    policy = shield.policy_provider.get_policy(session_id)
+    intent = shield.intent_provider.get_intent(session_id)
+    return SessionResponse(
+        session_id=session_id,
+        status="ACTIVE",
+        policy=_to_policy_schema(policy),
+        intent=_to_intent_schema(intent),
+        committed_spend=shield.get_committed_spend(session_id),
+        reserved_spend=shield.get_reserved_spend(session_id),
+        total_active_spend=shield.get_session_spend(session_id),
+    )

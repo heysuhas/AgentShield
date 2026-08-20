@@ -9,7 +9,11 @@ from sqlalchemy.orm import Session
 from app.agentshield.audit import AuditEvent
 from app.agentshield.intent import AuthorizedIntent
 from app.agentshield.policy_engine import Policy, PolicyViolation
-from app.agentshield.transaction import TransactionRecord, TransactionStatus
+from app.agentshield.transaction import (
+    VALID_TRANSITIONS,
+    TransactionRecord,
+    TransactionStatus,
+)
 from app.db.models import (
     AuditEventModel,
     AuthorizedIntentModel,
@@ -101,15 +105,28 @@ class SqlAlchemyTransactionStore:
         if model is None:
             return None
 
-        model.status = status.value
-        if provider_order_id is not None:
-            model.provider_order_id = provider_order_id
-        if error is not None:
-            model.error = error
+        lock = _get_session_lock(model.session_id)
+        with lock:
+            self._db.expire_all()
+            model = self._db.get(TransactionModel, transaction_id)
+            if model is None:
+                return None
 
-        self._db.commit()
-        self._db.refresh(model)
-        return self._to_record(model)
+            current_status = TransactionStatus(model.status)
+            valid_targets = VALID_TRANSITIONS.get(current_status, set())
+            if status != current_status and status not in valid_targets:
+                return None
+
+            model.status = status.value
+            model.updated_at = datetime.now(timezone.utc)
+            if provider_order_id is not None:
+                model.provider_order_id = provider_order_id
+            if error is not None:
+                model.error = error
+
+            self._db.commit()
+            self._db.refresh(model)
+            return self._to_record(model)
 
     def list_by_session(self, session_id: str) -> list[TransactionRecord]:
         stmt = (
@@ -148,6 +165,7 @@ class SqlAlchemyTransactionStore:
     ) -> tuple[TransactionRecord, bool]:
         lock = _get_session_lock(session_id)
         with lock:
+            self._db.expire_all()
             _ensure_session(self._db, session_id)
             transaction_id = f"txn_{uuid4().hex[:12]}"
 
