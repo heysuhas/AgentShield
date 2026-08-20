@@ -172,6 +172,26 @@ class AgentShield:
         if isinstance(self._intent_provider, InMemoryIntentProvider):
             self._intent_provider.reset()
 
+    def reconcile_stale_reservations(
+        self, max_age_seconds: int = 300
+    ) -> list[TransactionRecord]:
+        """Reconcile and cancel stale in-flight AUTHORIZED reservations left by crashes or timeouts."""
+        expired = self._transaction_store.expire_stale_reservations(
+            max_age_seconds=max_age_seconds
+        )
+        for txn in expired:
+            self._audit_sink.create_and_record(
+                transaction_id=txn.transaction_id,
+                transaction_status=TransactionStatus.CANCELLED,
+                session_id=txn.session_id,
+                tool_name=txn.tool_name,
+                arguments=txn.arguments,
+                decision="BLOCK",
+                risk_score=0.5,
+                reasons=["RESERVATION_EXPIRED"],
+            )
+        return expired
+
     def _get_provider_name(self) -> str | None:
         if self._payment_provider is not None:
             return self._payment_provider.__class__.__name__

@@ -2,6 +2,7 @@
 
 from datetime import datetime, timezone
 from enum import Enum
+from threading import Lock
 from typing import Any, Protocol, runtime_checkable
 
 from pydantic import BaseModel, Field
@@ -100,6 +101,12 @@ class TransactionStore(Protocol):
         """Atomically check session spend limit, reserve spend, and create transaction record."""
         ...
 
+    def expire_stale_reservations(
+        self, max_age_seconds: int = 300
+    ) -> list[TransactionRecord]:
+        """Expire stale AUTHORIZED transactions older than max_age_seconds."""
+        ...
+
     def reset_session(self, session_id: str) -> None:
         """Clear all transactions for a specific session."""
         ...
@@ -115,6 +122,7 @@ class InMemoryTransactionStore:
     def __init__(self) -> None:
         self._transactions: dict[str, TransactionRecord] = {}
         self._counter: int = 0
+        self._reservation_lock = Lock()
 
     def create(
         self,
@@ -157,36 +165,37 @@ class InMemoryTransactionStore:
         max_session_spend: int | None = None,
         arguments: dict[str, Any] | None = None,
     ) -> tuple[TransactionRecord, bool]:
-        current_spend = self.get_committed_spend(session_id) + self.get_reserved_spend(session_id)
-        if (
-            max_session_spend is not None
-            and amount is not None
-            and amount > 0
-            and (current_spend + amount > max_session_spend)
-        ):
+        with self._reservation_lock:
+            current_spend = self.get_committed_spend(session_id) + self.get_reserved_spend(session_id)
+            if (
+                max_session_spend is not None
+                and amount is not None
+                and amount > 0
+                and (current_spend + amount > max_session_spend)
+            ):
+                record = self.create(
+                    session_id=session_id,
+                    tool_name=tool_name,
+                    amount=amount,
+                    currency=currency,
+                    status=TransactionStatus.BLOCKED,
+                    decision="BLOCK",
+                    reasons=["MAX_SESSION_SPEND"],
+                    arguments=arguments,
+                )
+                return record, False
+
             record = self.create(
                 session_id=session_id,
                 tool_name=tool_name,
                 amount=amount,
                 currency=currency,
-                status=TransactionStatus.BLOCKED,
-                decision="BLOCK",
-                reasons=["MAX_SESSION_SPEND"],
+                status=TransactionStatus.AUTHORIZED,
+                decision="ALLOW",
+                reasons=[],
                 arguments=arguments,
             )
-            return record, False
-
-        record = self.create(
-            session_id=session_id,
-            tool_name=tool_name,
-            amount=amount,
-            currency=currency,
-            status=TransactionStatus.AUTHORIZED,
-            decision="ALLOW",
-            reasons=[],
-            arguments=arguments,
-        )
-        return record, True
+            return record, True
 
     def get(self, transaction_id: str) -> TransactionRecord | None:
         return self._transactions.get(transaction_id)
@@ -238,6 +247,25 @@ class InMemoryTransactionStore:
             if t.session_id == session_id
             and t.status == TransactionStatus.AUTHORIZED
         )
+
+    def expire_stale_reservations(
+        self, max_age_seconds: int = 300
+    ) -> list[TransactionRecord]:
+        now = datetime.now(timezone.utc)
+        expired: list[TransactionRecord] = []
+        with self._reservation_lock:
+            for txn_id, txn in list(self._transactions.items()):
+                if txn.status == TransactionStatus.AUTHORIZED:
+                    age = (now - txn.created_at).total_seconds()
+                    if age >= max_age_seconds:
+                        updated = self.update_status(
+                            txn_id,
+                            status=TransactionStatus.CANCELLED,
+                            error="RESERVATION_EXPIRED",
+                        )
+                        if updated:
+                            expired.append(updated)
+        return expired
 
     def reset_session(self, session_id: str) -> None:
         self._transactions = {

@@ -1,6 +1,6 @@
 """SQLAlchemy-backed persistence implementations for AgentShield stores."""
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any, Literal
 from uuid import uuid4
 from sqlalchemy import delete, func, select
@@ -199,6 +199,30 @@ class SqlAlchemyTransactionStore:
             self._db.commit()
             self._db.refresh(model)
             return self._to_record(model), True
+
+    def expire_stale_reservations(
+        self, max_age_seconds: int = 300
+    ) -> list[TransactionRecord]:
+        cutoff_time = datetime.now(timezone.utc) - timedelta(seconds=max_age_seconds)
+        stmt = (
+            select(TransactionModel)
+            .where(TransactionModel.status == TransactionStatus.AUTHORIZED.value)
+            .where(TransactionModel.created_at <= cutoff_time)
+        )
+        models = self._db.scalars(stmt).all()
+        expired: list[TransactionRecord] = []
+        for model in models:
+            model.status = TransactionStatus.CANCELLED.value
+            model.error = "RESERVATION_EXPIRED"
+            model.updated_at = datetime.now(timezone.utc)
+            expired.append(self._to_record(model))
+
+        if models:
+            self._db.commit()
+            for model in models:
+                self._db.refresh(model)
+
+        return expired
 
     def reset_session(self, session_id: str) -> None:
         stmt = delete(TransactionModel).where(
