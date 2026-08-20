@@ -13,6 +13,22 @@ class IntentProvider(Protocol):
         """Return the authorized intent for the given session ID, or None."""
         ...
 
+    def set_intent(self, session_id: str, intent: AuthorizedIntent) -> None:
+        """Register or update an authorized intent for a session."""
+        ...
+
+    def remove_intent(self, session_id: str) -> None:
+        """Remove a session's authorized intent."""
+        ...
+
+    def has_intent(self, session_id: str) -> bool:
+        """Check if an authorized intent exists for a session."""
+        ...
+
+    def reset(self) -> None:
+        """Clear all registered intents."""
+        ...
+
 
 class InMemoryIntentProvider:
     """In-memory store for session-specific authorized user intents."""

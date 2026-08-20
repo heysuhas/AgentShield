@@ -13,6 +13,26 @@ class PolicyProvider(Protocol):
         """Return the policy for the given session ID, or None if not found."""
         ...
 
+    def set_policy(self, session_id: str, policy: Policy) -> None:
+        """Register or update a policy for a specific session."""
+        ...
+
+    def remove_policy(self, session_id: str) -> None:
+        """Remove a session-specific policy."""
+        ...
+
+    def has_session(self, session_id: str) -> bool:
+        """Check if a session policy is explicitly registered."""
+        ...
+
+    def list_sessions(self) -> list[str]:
+        """Return list of explicitly registered session IDs."""
+        ...
+
+    def reset(self) -> None:
+        """Clear all registered policies."""
+        ...
+
 
 class InMemoryPolicyProvider:
     """In-memory policy provider supporting per-session policies and a default fallback."""

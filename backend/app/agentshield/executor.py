@@ -280,17 +280,46 @@ class AgentShield:
                     intent_validation=intent_validation,
                 )
 
-        # 1. Authorize and create transaction record in AUTHORIZED status
+        # 1. Authorize and atomically reserve spend against session budget
         currency = str(arguments.get("currency", "INR"))
-        txn = self._transaction_store.create(
+        txn, is_authorized = self._transaction_store.reserve_and_authorize(
             session_id=session_id,
             tool_name=tool_name,
             amount=raw_amount,
             currency=currency,
-            status=TransactionStatus.AUTHORIZED,
-            decision="ALLOW",
+            max_session_spend=policy.max_session_spend,
             arguments=arguments,
         )
+
+        if not is_authorized:
+            active_spend = self.get_session_spend(session_id)
+            violation = PolicyViolation(
+                rule="MAX_SESSION_SPEND",
+                actual=active_spend + (raw_amount or 0),
+                limit=policy.max_session_spend,
+            )
+            self._audit_sink.create_and_record(
+                transaction_id=txn.transaction_id,
+                transaction_status=TransactionStatus.BLOCKED,
+                session_id=session_id,
+                tool_name=tool_name,
+                arguments=arguments,
+                decision="BLOCK",
+                risk_score=1.0,
+                reasons=["MAX_SESSION_SPEND"],
+                policy_violations=[violation],
+            )
+            return ExecutionResult(
+                decision="BLOCK",
+                session_id=session_id,
+                tool_name=tool_name,
+                risk_score=1.0,
+                reasons=["MAX_SESSION_SPEND"],
+                policy_violations=[violation],
+                intent_validation=intent_validation,
+                transaction_id=txn.transaction_id,
+                transaction_status=TransactionStatus.BLOCKED,
+            )
 
         provider_result: PaymentResult | None = None
         current_status = TransactionStatus.AUTHORIZED

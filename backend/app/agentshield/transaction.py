@@ -87,6 +87,27 @@ class TransactionStore(Protocol):
         """Calculate total in-flight reserved spend for a session."""
         ...
 
+    def reserve_and_authorize(
+        self,
+        *,
+        session_id: str,
+        tool_name: str,
+        amount: int | None,
+        currency: str = "INR",
+        max_session_spend: int | None = None,
+        arguments: dict[str, Any] | None = None,
+    ) -> tuple[TransactionRecord, bool]:
+        """Atomically check session spend limit, reserve spend, and create transaction record."""
+        ...
+
+    def reset_session(self, session_id: str) -> None:
+        """Clear all transactions for a specific session."""
+        ...
+
+    def reset(self) -> None:
+        """Clear all transactions and reset state."""
+        ...
+
 
 class InMemoryTransactionStore:
     """In-memory storage for transaction records."""
@@ -125,6 +146,47 @@ class InMemoryTransactionStore:
         )
         self._transactions[txn_id] = record
         return record
+
+    def reserve_and_authorize(
+        self,
+        *,
+        session_id: str,
+        tool_name: str,
+        amount: int | None,
+        currency: str = "INR",
+        max_session_spend: int | None = None,
+        arguments: dict[str, Any] | None = None,
+    ) -> tuple[TransactionRecord, bool]:
+        current_spend = self.get_committed_spend(session_id) + self.get_reserved_spend(session_id)
+        if (
+            max_session_spend is not None
+            and amount is not None
+            and amount > 0
+            and (current_spend + amount > max_session_spend)
+        ):
+            record = self.create(
+                session_id=session_id,
+                tool_name=tool_name,
+                amount=amount,
+                currency=currency,
+                status=TransactionStatus.BLOCKED,
+                decision="BLOCK",
+                reasons=["MAX_SESSION_SPEND"],
+                arguments=arguments,
+            )
+            return record, False
+
+        record = self.create(
+            session_id=session_id,
+            tool_name=tool_name,
+            amount=amount,
+            currency=currency,
+            status=TransactionStatus.AUTHORIZED,
+            decision="ALLOW",
+            reasons=[],
+            arguments=arguments,
+        )
+        return record, True
 
     def get(self, transaction_id: str) -> TransactionRecord | None:
         return self._transactions.get(transaction_id)
@@ -176,6 +238,11 @@ class InMemoryTransactionStore:
             if t.session_id == session_id
             and t.status == TransactionStatus.AUTHORIZED
         )
+
+    def reset_session(self, session_id: str) -> None:
+        self._transactions = {
+            k: v for k, v in self._transactions.items() if v.session_id != session_id
+        }
 
     def reset(self) -> None:
         """Clear all transactions and reset counter."""

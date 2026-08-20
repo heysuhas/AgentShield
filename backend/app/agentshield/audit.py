@@ -70,6 +70,10 @@ class AuditSink(Protocol):
         """List all audit events up to a given limit."""
         ...
 
+    def reset(self) -> None:
+        """Clear all recorded audit events."""
+        ...
+
 
 class InMemoryAuditSink:
     """In-memory append-only sink for security audit trails."""

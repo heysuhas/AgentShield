@@ -34,6 +34,19 @@ def _ensure_session(db: Session, session_id: str) -> None:
         db.commit()
 
 
+import threading
+
+_global_session_locks: dict[str, threading.Lock] = {}
+_lock_mutex = threading.Lock()
+
+
+def _get_session_lock(session_id: str) -> threading.Lock:
+    with _lock_mutex:
+        if session_id not in _global_session_locks:
+            _global_session_locks[session_id] = threading.Lock()
+        return _global_session_locks[session_id]
+
+
 class SqlAlchemyTransactionStore:
     """Persistent transaction store backed by SQLAlchemy."""
 
@@ -48,7 +61,7 @@ class SqlAlchemyTransactionStore:
         amount: int | None = None,
         currency: str = "INR",
         status: TransactionStatus = TransactionStatus.REQUESTED,
-        decision: Literal["ALLOW", "BLOCK"] = "ALLOW",
+        decision: str = "ALLOW",
         reasons: list[str] | None = None,
         arguments: dict[str, Any] | None = None,
     ) -> TransactionRecord:
@@ -123,11 +136,79 @@ class SqlAlchemyTransactionStore:
         )
         return int(self._db.scalar(stmt) or 0)
 
+    def reserve_and_authorize(
+        self,
+        *,
+        session_id: str,
+        tool_name: str,
+        amount: int | None,
+        currency: str = "INR",
+        max_session_spend: int | None = None,
+        arguments: dict[str, Any] | None = None,
+    ) -> tuple[TransactionRecord, bool]:
+        lock = _get_session_lock(session_id)
+        with lock:
+            _ensure_session(self._db, session_id)
+            transaction_id = f"txn_{uuid4().hex[:12]}"
+
+            bind = self._db.get_bind()
+            if bind is not None and bind.dialect.name == "postgresql":
+                lock_stmt = (
+                    select(SessionModel)
+                    .where(SessionModel.session_id == session_id)
+                    .with_for_update()
+                )
+                self._db.scalars(lock_stmt).first()
+
+            current_spend = self.get_committed_spend(session_id) + self.get_reserved_spend(session_id)
+
+            if (
+                max_session_spend is not None
+                and amount is not None
+                and amount > 0
+                and (current_spend + amount > max_session_spend)
+            ):
+                model = TransactionModel(
+                    transaction_id=transaction_id,
+                    session_id=session_id,
+                    tool_name=tool_name,
+                    amount=amount,
+                    currency=currency,
+                    status=TransactionStatus.BLOCKED.value,
+                    decision="BLOCK",
+                    reasons=["MAX_SESSION_SPEND"],
+                    arguments=arguments or {},
+                )
+                self._db.add(model)
+                self._db.commit()
+                self._db.refresh(model)
+                return self._to_record(model), False
+
+            model = TransactionModel(
+                transaction_id=transaction_id,
+                session_id=session_id,
+                tool_name=tool_name,
+                amount=amount,
+                currency=currency,
+                status=TransactionStatus.AUTHORIZED.value,
+                decision="ALLOW",
+                reasons=[],
+                arguments=arguments or {},
+            )
+            self._db.add(model)
+            self._db.commit()
+            self._db.refresh(model)
+            return self._to_record(model), True
+
     def reset_session(self, session_id: str) -> None:
         stmt = delete(TransactionModel).where(
             TransactionModel.session_id == session_id
         )
         self._db.execute(stmt)
+        self._db.commit()
+
+    def reset(self) -> None:
+        self._db.execute(delete(TransactionModel))
         self._db.commit()
 
     @staticmethod
@@ -246,6 +327,10 @@ class SqlAlchemyAuditSink:
         models = self._db.scalars(stmt).all()
         return [self._to_event(m) for m in models]
 
+    def reset(self) -> None:
+        self._db.execute(delete(AuditEventModel))
+        self._db.commit()
+
     @staticmethod
     def _to_event(model: AuditEventModel) -> AuditEvent:
         prov_res = None
@@ -327,6 +412,10 @@ class SqlAlchemyPolicyProvider:
         stmt = select(PolicyModel.session_id)
         return list(self._db.scalars(stmt).all())
 
+    def reset(self) -> None:
+        self._db.execute(delete(PolicyModel))
+        self._db.commit()
+
 
 class SqlAlchemyIntentProvider:
     """Persistent authorized intent provider backed by SQLAlchemy."""
@@ -405,3 +494,7 @@ class SqlAlchemyIntentProvider:
             AuthorizedIntentModel.session_id == session_id
         )
         return self._db.scalars(stmt).first() is not None
+
+    def reset(self) -> None:
+        self._db.execute(delete(AuthorizedIntentModel))
+        self._db.commit()
