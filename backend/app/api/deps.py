@@ -12,15 +12,7 @@ from app.db.stores import (
     SqlAlchemyTransactionStore,
 )
 from app.providers.payments.base import PaymentProvider
-from app.providers.payments.mock import MockPaymentProvider
-
-# Global payment provider singleton (maintains simulated sandbox state)
-_global_payment_provider = MockPaymentProvider()
-
-
-def get_payment_provider() -> PaymentProvider:
-    """Return the active payment provider implementation."""
-    return _global_payment_provider
+from app.providers.payments.factory import get_payment_provider
 
 
 def get_shield(

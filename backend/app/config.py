@@ -23,6 +23,12 @@ class Settings(BaseSettings):
     NVIDIA_BASE_URL: str = "https://integrate.api.nvidia.com/v1"
     NVIDIA_MODEL: str = "meta/llama-3.3-70b-instruct"
 
+    # Payment Provider Configuration
+    PAYMENT_PROVIDER: str = "mock"  # "mock" | "razorpay"
+    RAZORPAY_KEY_ID: str | None = None
+    RAZORPAY_KEY_SECRET: str | None = None
+    RAZORPAY_BASE_URL: str = "https://api.razorpay.com/v1"
+
 
 @lru_cache
 def get_settings() -> Settings:
