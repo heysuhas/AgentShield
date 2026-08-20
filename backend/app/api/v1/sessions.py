@@ -28,6 +28,9 @@ def _to_policy_schema(policy: Policy | None) -> PolicySchema | None:
         allowed_tools=sorted(list(policy.allowed_tools)),
         max_transaction_amount=policy.max_transaction_amount,
         max_session_spend=policy.max_session_spend,
+        max_requests_per_window=policy.max_requests_per_window,
+        window_seconds=policy.window_seconds,
+        max_spend_per_window=policy.max_spend_per_window,
     )
 
 
@@ -36,6 +39,9 @@ def _to_policy(schema: PolicySchema) -> Policy:
         allowed_tools=frozenset(schema.allowed_tools),
         max_transaction_amount=schema.max_transaction_amount,
         max_session_spend=schema.max_session_spend,
+        max_requests_per_window=schema.max_requests_per_window,
+        window_seconds=schema.window_seconds,
+        max_spend_per_window=schema.max_spend_per_window,
     )
 
 

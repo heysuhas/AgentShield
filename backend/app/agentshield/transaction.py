@@ -102,6 +102,10 @@ class TransactionStore(Protocol):
         """List all transactions for a given session."""
         ...
 
+    def list_since(self, session_id: str, since: datetime) -> list[TransactionRecord]:
+        """List transactions for a session created at or after the specified timestamp."""
+        ...
+
     def get_committed_spend(self, session_id: str) -> int:
         """Calculate total settled/committed spend for a session."""
         ...
@@ -265,6 +269,14 @@ class InMemoryTransactionStore:
             for t in self._transactions.values()
             if t.session_id == session_id
         ]
+
+    def list_since(self, session_id: str, since: datetime) -> list[TransactionRecord]:
+        with self._reservation_lock:
+            return [
+                t
+                for t in self._transactions.values()
+                if t.session_id == session_id and t.created_at >= since
+            ]
 
     def get_committed_spend(self, session_id: str) -> int:
         return sum(

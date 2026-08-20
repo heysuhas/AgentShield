@@ -57,6 +57,15 @@ class PolicyModel(Base):
     max_session_spend: Mapped[int | None] = mapped_column(
         Integer, nullable=True
     )
+    max_requests_per_window: Mapped[int | None] = mapped_column(
+        Integer, nullable=True
+    )
+    window_seconds: Mapped[int] = mapped_column(
+        Integer, default=60, nullable=False
+    )
+    max_spend_per_window: Mapped[int | None] = mapped_column(
+        Integer, nullable=True
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=_utc_now
     )

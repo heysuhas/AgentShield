@@ -11,6 +11,9 @@ class Policy(BaseModel):
     allowed_tools: frozenset[str] = Field(default_factory=frozenset)
     max_transaction_amount: int | None = Field(default=None, ge=0)
     max_session_spend: int | None = Field(default=None, ge=0)
+    max_requests_per_window: int | None = Field(default=None, ge=1)
+    window_seconds: int = Field(default=60, ge=1)
+    max_spend_per_window: int | None = Field(default=None, ge=0)
 
 
 class PolicyViolation(BaseModel):

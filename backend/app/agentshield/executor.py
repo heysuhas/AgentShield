@@ -26,6 +26,7 @@ from app.agentshield.transaction import (
     TransactionStatus,
     TransactionStore,
 )
+from app.agentshield.velocity import VelocityEngine
 from app.providers.llm.base import LLMProvider, LLMProviderError
 from app.providers.payments.base import (
     PaymentProvider,
@@ -351,6 +352,22 @@ class AgentShield:
                 arguments=arguments,
                 amount=amount,
                 violations=policy_decision.violations,
+            )
+
+        # 1.5. Velocity and burst rate evaluation
+        velocity_result = VelocityEngine.check_velocity(
+            session_id=session_id,
+            policy=policy,
+            transaction_store=self._transaction_store,
+            incoming_amount=amount,
+        )
+        if not velocity_result.allowed:
+            return self._record_and_block(
+                session_id=session_id,
+                tool_name=tool_name,
+                arguments=arguments,
+                amount=amount,
+                violations=velocity_result.violations,
             )
 
         if (

@@ -138,6 +138,16 @@ class SqlAlchemyTransactionStore:
         models = self._db.scalars(stmt).all()
         return [self._to_record(m) for m in models]
 
+    def list_since(self, session_id: str, since: datetime) -> list[TransactionRecord]:
+        stmt = (
+            select(TransactionModel)
+            .where(TransactionModel.session_id == session_id)
+            .where(TransactionModel.created_at >= since)
+            .order_by(TransactionModel.created_at)
+        )
+        models = self._db.scalars(stmt).all()
+        return [self._to_record(m) for m in models]
+
     def get_committed_spend(self, session_id: str) -> int:
         stmt = (
             select(func.coalesce(func.sum(TransactionModel.amount), 0))
@@ -446,6 +456,9 @@ class SqlAlchemyPolicyProvider:
             allowed_tools=frozenset(model.allowed_tools or []),
             max_transaction_amount=model.max_transaction_amount,
             max_session_spend=model.max_session_spend,
+            max_requests_per_window=model.max_requests_per_window,
+            window_seconds=model.window_seconds if model.window_seconds is not None else 60,
+            max_spend_per_window=model.max_spend_per_window,
         )
 
     def set_policy(self, session_id: str, policy: Policy) -> None:
@@ -458,12 +471,18 @@ class SqlAlchemyPolicyProvider:
                 allowed_tools=list(policy.allowed_tools),
                 max_transaction_amount=policy.max_transaction_amount,
                 max_session_spend=policy.max_session_spend,
+                max_requests_per_window=policy.max_requests_per_window,
+                window_seconds=policy.window_seconds,
+                max_spend_per_window=policy.max_spend_per_window,
             )
             self._db.add(model)
         else:
             model.allowed_tools = list(policy.allowed_tools)
             model.max_transaction_amount = policy.max_transaction_amount
             model.max_session_spend = policy.max_session_spend
+            model.max_requests_per_window = policy.max_requests_per_window
+            model.window_seconds = policy.window_seconds
+            model.max_spend_per_window = policy.max_spend_per_window
 
         self._db.commit()
 
