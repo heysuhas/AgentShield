@@ -9,6 +9,7 @@ from typing import Sequence, Union
 
 from alembic import op
 import sqlalchemy as sa
+from sqlalchemy import inspect
 
 
 # revision identifiers, used by Alembic.
@@ -19,11 +20,25 @@ depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade() -> None:
-    """Upgrade schema."""
-    op.add_column('policies', sa.Column('require_approval_above', sa.Integer(), nullable=True))
-    op.add_column('policies', sa.Column('require_human_approval', sa.Boolean(), server_default=sa.false(), nullable=False))
-    
-    op.create_table(
+    """Upgrade schema, tolerating a partially applied local SQLite upgrade."""
+    bind = op.get_bind()
+    inspector = inspect(bind)
+    policy_columns = {column["name"] for column in inspector.get_columns("policies")}
+    if "require_approval_above" not in policy_columns:
+        op.add_column("policies", sa.Column("require_approval_above", sa.Integer(), nullable=True))
+    if "require_human_approval" not in policy_columns:
+        op.add_column(
+            "policies",
+            sa.Column(
+                "require_human_approval",
+                sa.Boolean(),
+                server_default=sa.false(),
+                nullable=False,
+            ),
+        )
+
+    if "approvals" not in inspector.get_table_names():
+        op.create_table(
         'approvals',
         sa.Column('id', sa.Integer(), autoincrement=True, nullable=False),
         sa.Column('approval_id', sa.String(length=128), nullable=False),
@@ -44,12 +59,19 @@ def upgrade() -> None:
         sa.ForeignKeyConstraint(['session_id'], ['sessions.session_id'], ondelete='CASCADE'),
         sa.ForeignKeyConstraint(['transaction_id'], ['transactions.transaction_id'], ondelete='CASCADE'),
         sa.PrimaryKeyConstraint('id')
-    )
-    op.create_index(op.f('ix_approvals_approval_id'), 'approvals', ['approval_id'], unique=True)
-    op.create_index(op.f('ix_approvals_session_id'), 'approvals', ['session_id'], unique=False)
-    op.create_index(op.f('ix_approvals_status'), 'approvals', ['status'], unique=False)
-    op.create_index(op.f('ix_approvals_transaction_id'), 'approvals', ['transaction_id'], unique=False)
-    op.create_index(op.f('ix_approvals_created_at'), 'approvals', ['created_at'], unique=False)
+        )
+
+    existing_indexes = {index["name"] for index in inspect(bind).get_indexes("approvals")}
+    indexes = {
+        "ix_approvals_approval_id": ("approval_id", True),
+        "ix_approvals_session_id": ("session_id", False),
+        "ix_approvals_status": ("status", False),
+        "ix_approvals_transaction_id": ("transaction_id", False),
+        "ix_approvals_created_at": ("created_at", False),
+    }
+    for index_name, (column, unique) in indexes.items():
+        if index_name not in existing_indexes:
+            op.create_index(index_name, "approvals", [column], unique=unique)
 
 
 def downgrade() -> None:
