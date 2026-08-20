@@ -126,16 +126,18 @@ class InMemoryAuditSink:
         return None
 
     def list_by_session(self, session_id: str) -> list[AuditEvent]:
-        return [
+        matching = [
             event.model_copy(deep=True)
             for event in self._events
             if event.session_id == session_id
         ]
+        return list(reversed(matching))
 
     def list_all(self, limit: int = 100) -> list[AuditEvent]:
         if limit <= 0:
             return []
-        return [event.model_copy(deep=True) for event in self._events[-limit:]]
+        recent = self._events[-limit:]
+        return [event.model_copy(deep=True) for event in reversed(recent)]
 
     def reset(self) -> None:
         """Clear all audit events and counter."""

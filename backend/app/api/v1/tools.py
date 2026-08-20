@@ -1,12 +1,10 @@
 """API router for agent tool execution."""
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 
 from app.agentshield.executor import AgentShield
-from app.agentshield.intent_provider import InMemoryIntentProvider
 from app.agentshield.policy_engine import Policy
-from app.agentshield.policy_provider import InMemoryPolicyProvider
-from app.providers.payments.mock import MockPaymentProvider
+from app.api.deps import get_shield
 from app.schemas.tool_execution import ExecuteToolRequest, ExecuteToolResponse
 
 router = APIRouter(prefix="/tools", tags=["tools"])
@@ -16,22 +14,15 @@ DEMO_POLICY = Policy(
     max_transaction_amount=5000,
     max_session_spend=10000,
 )
-_policy_provider = InMemoryPolicyProvider(
-    policies={"session_123": DEMO_POLICY}
-)
-_intent_provider = InMemoryIntentProvider()
-_payment_provider = MockPaymentProvider()
-_shield = AgentShield(
-    policy_or_provider=_policy_provider,
-    payment_provider=_payment_provider,
-    intent_provider=_intent_provider,
-)
 
 
 @router.post("/execute", response_model=ExecuteToolResponse)
-def execute_tool(request: ExecuteToolRequest) -> ExecuteToolResponse:
+def execute_tool(
+    request: ExecuteToolRequest,
+    shield: AgentShield = Depends(get_shield),
+) -> ExecuteToolResponse:
     """Execute an agent tool request through AgentShield."""
-    result = _shield.execute_tool(
+    result = shield.execute_tool(
         session_id=request.session_id,
         tool_name=request.tool_name,
         arguments=request.arguments,

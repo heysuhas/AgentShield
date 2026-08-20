@@ -123,8 +123,6 @@ class AgentShield:
         self._intent_provider: IntentProvider = (
             intent_provider or InMemoryIntentProvider()
         )
-        self._committed_spend: dict[str, int] = {}
-        self._reserved_spend: dict[str, int] = {}
 
     @property
     def audit_sink(self) -> AuditSink:
@@ -148,19 +146,11 @@ class AgentShield:
 
     def get_committed_spend(self, session_id: str) -> int:
         """Return the settled/committed transaction spend for a session."""
-        if hasattr(self._transaction_store, "get_committed_spend") and not isinstance(
-            self._transaction_store, InMemoryTransactionStore
-        ):
-            return self._transaction_store.get_committed_spend(session_id)
-        return self._committed_spend.get(session_id, 0)
+        return self._transaction_store.get_committed_spend(session_id)
 
     def get_reserved_spend(self, session_id: str) -> int:
         """Return the currently reserved in-flight spend for a session."""
-        if hasattr(self._transaction_store, "get_reserved_spend") and not isinstance(
-            self._transaction_store, InMemoryTransactionStore
-        ):
-            return self._transaction_store.get_reserved_spend(session_id)
-        return self._reserved_spend.get(session_id, 0)
+        return self._transaction_store.get_reserved_spend(session_id)
 
     def get_session_spend(self, session_id: str) -> int:
         """Return the total active spend (committed + reserved) for a session."""
@@ -169,14 +159,12 @@ class AgentShield:
         )
 
     def reset_session_spend(self, session_id: str) -> None:
-        """Reset the tracked spend for a session."""
-        self._committed_spend.pop(session_id, None)
-        self._reserved_spend.pop(session_id, None)
+        """Reset the tracked spend for a session by clearing/resetting store if supported."""
+        if hasattr(self._transaction_store, "reset_session"):
+            self._transaction_store.reset_session(session_id)
 
     def reset(self) -> None:
         """Reset all in-memory spend, transaction store, audit, and intent state."""
-        self._committed_spend.clear()
-        self._reserved_spend.clear()
         if isinstance(self._transaction_store, InMemoryTransactionStore):
             self._transaction_store.reset()
         if isinstance(self._audit_sink, InMemoryAuditSink):
@@ -304,12 +292,6 @@ class AgentShield:
             arguments=arguments,
         )
 
-        # 2. Reserve amount against session budget
-        if raw_amount is not None and raw_amount > 0:
-            self._reserved_spend[session_id] = (
-                self.get_reserved_spend(session_id) + raw_amount
-            )
-
         provider_result: PaymentResult | None = None
         current_status = TransactionStatus.AUTHORIZED
 
@@ -355,14 +337,6 @@ class AgentShield:
                     status=TransactionStatus.SUCCEEDED,
                     provider_order_id=order_id,
                 )
-                # Commit spend and release reservation
-                if raw_amount is not None and raw_amount > 0:
-                    self._committed_spend[session_id] = (
-                        self.get_committed_spend(session_id) + raw_amount
-                    )
-                    self._reserved_spend[session_id] = max(
-                        0, self.get_reserved_spend(session_id) - raw_amount
-                    )
             elif provider_result is not None and not provider_result.success:
                 current_status = TransactionStatus.FAILED
                 self._transaction_store.update_status(
@@ -370,11 +344,6 @@ class AgentShield:
                     status=TransactionStatus.FAILED,
                     error=provider_result.error,
                 )
-                # Release reserved spend so failed transaction does not consume budget
-                if raw_amount is not None and raw_amount > 0:
-                    self._reserved_spend[session_id] = max(
-                        0, self.get_reserved_spend(session_id) - raw_amount
-                    )
         else:
             # Without payment provider, commit immediately
             current_status = TransactionStatus.SUCCEEDED
@@ -382,13 +351,6 @@ class AgentShield:
                 txn.transaction_id,
                 status=TransactionStatus.SUCCEEDED,
             )
-            if raw_amount is not None and raw_amount > 0:
-                self._committed_spend[session_id] = (
-                    self.get_committed_spend(session_id) + raw_amount
-                )
-                self._reserved_spend[session_id] = max(
-                    0, self.get_reserved_spend(session_id) - raw_amount
-                )
 
         self._audit_sink.create_and_record(
             transaction_id=txn.transaction_id,

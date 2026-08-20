@@ -2,7 +2,8 @@
 
 from datetime import datetime, timezone
 from typing import Any, Literal
-from sqlalchemy import func, select
+from uuid import uuid4
+from sqlalchemy import delete, func, select
 from sqlalchemy.orm import Session
 
 from app.agentshield.audit import AuditEvent
@@ -13,9 +14,24 @@ from app.db.models import (
     AuditEventModel,
     AuthorizedIntentModel,
     PolicyModel,
+    SessionModel,
     TransactionModel,
 )
-from app.providers.payments.base import PaymentOrder, PaymentResult
+from app.providers.payments.base import PaymentResult
+
+
+def _ensure_session(db: Session, session_id: str) -> None:
+    """Ensure a parent session record exists to maintain foreign key integrity."""
+    session = db.get(SessionModel, session_id)
+    if session is None:
+        session = SessionModel(
+            session_id=session_id,
+            status="ACTIVE",
+            created_at=datetime.now(timezone.utc),
+            updated_at=datetime.now(timezone.utc),
+        )
+        db.add(session)
+        db.commit()
 
 
 class SqlAlchemyTransactionStore:
@@ -36,9 +52,8 @@ class SqlAlchemyTransactionStore:
         reasons: list[str] | None = None,
         arguments: dict[str, Any] | None = None,
     ) -> TransactionRecord:
-        # Generate monotonic ID
-        count = self._db.scalar(select(func.count()).select_from(TransactionModel)) or 0
-        transaction_id = f"txn_{count + 1:06d}"
+        _ensure_session(self._db, session_id)
+        transaction_id = f"txn_{uuid4().hex[:12]}"
 
         model = TransactionModel(
             transaction_id=transaction_id,
@@ -108,6 +123,13 @@ class SqlAlchemyTransactionStore:
         )
         return int(self._db.scalar(stmt) or 0)
 
+    def reset_session(self, session_id: str) -> None:
+        stmt = delete(TransactionModel).where(
+            TransactionModel.session_id == session_id
+        )
+        self._db.execute(stmt)
+        self._db.commit()
+
     @staticmethod
     def _to_record(model: TransactionModel) -> TransactionRecord:
         return TransactionRecord(
@@ -148,8 +170,8 @@ class SqlAlchemyAuditSink:
         provider_name: str | None = None,
         provider_result: PaymentResult | None = None,
     ) -> AuditEvent:
-        count = self._db.scalar(select(func.count()).select_from(AuditEventModel)) or 0
-        event_id = f"evt_{count + 1:06d}"
+        _ensure_session(self._db, session_id)
+        event_id = f"evt_{uuid4().hex[:12]}"
 
         raw_provider_result = None
         if provider_result is not None:
@@ -179,6 +201,7 @@ class SqlAlchemyAuditSink:
         return self._to_event(model)
 
     def record(self, event: AuditEvent) -> None:
+        _ensure_session(self._db, event.session_id)
         raw_provider_result = None
         if event.provider_result is not None:
             raw_provider_result = event.provider_result.model_dump(mode="json")
@@ -211,7 +234,7 @@ class SqlAlchemyAuditSink:
         stmt = (
             select(AuditEventModel)
             .where(AuditEventModel.session_id == session_id)
-            .order_by(AuditEventModel.timestamp)
+            .order_by(AuditEventModel.timestamp.desc())
         )
         models = self._db.scalars(stmt).all()
         return [self._to_event(m) for m in models]
@@ -219,7 +242,7 @@ class SqlAlchemyAuditSink:
     def list_all(self, limit: int = 100) -> list[AuditEvent]:
         if limit <= 0:
             return []
-        stmt = select(AuditEventModel).order_by(AuditEventModel.timestamp).limit(limit)
+        stmt = select(AuditEventModel).order_by(AuditEventModel.timestamp.desc()).limit(limit)
         models = self._db.scalars(stmt).all()
         return [self._to_event(m) for m in models]
 
@@ -271,6 +294,7 @@ class SqlAlchemyPolicyProvider:
         )
 
     def set_policy(self, session_id: str, policy: Policy) -> None:
+        _ensure_session(self._db, session_id)
         stmt = select(PolicyModel).where(PolicyModel.session_id == session_id)
         model = self._db.scalars(stmt).first()
         if model is None:
@@ -331,6 +355,7 @@ class SqlAlchemyIntentProvider:
         )
 
     def set_intent(self, session_id: str, intent: AuthorizedIntent) -> None:
+        _ensure_session(self._db, session_id)
         stmt = select(AuthorizedIntentModel).where(
             AuthorizedIntentModel.session_id == session_id
         )

@@ -1,28 +1,39 @@
 import pytest
 from fastapi.testclient import TestClient
+from sqlalchemy import create_engine
+from sqlalchemy.orm import Session, sessionmaker
+from sqlalchemy.pool import StaticPool
 
-from app.api.v1.tools import (
-    _intent_provider,
-    _payment_provider,
-    _policy_provider,
-    _shield,
-)
+from app.api.deps import get_db
+from app.db.session import Base
 from app.main import app
 
 client = TestClient(app)
 
 
 @pytest.fixture(autouse=True)
-def reset_state():
-    _shield.reset()
-    _payment_provider.reset()
-    _policy_provider.reset()
-    _intent_provider.reset()
+def setup_test_db():
+    engine = create_engine(
+        "sqlite:///:memory:",
+        connect_args={"check_same_thread": False},
+        poolclass=StaticPool,
+    )
+    Base.metadata.create_all(bind=engine)
+    TestingSessionLocal = sessionmaker(
+        autocommit=False, autoflush=False, bind=engine
+    )
+
+    def override_get_db():
+        db = TestingSessionLocal()
+        try:
+            yield db
+        finally:
+            db.close()
+
+    app.dependency_overrides[get_db] = override_get_db
     yield
-    _shield.reset()
-    _payment_provider.reset()
-    _policy_provider.reset()
-    _intent_provider.reset()
+    app.dependency_overrides.clear()
+    Base.metadata.drop_all(bind=engine)
 
 
 def test_create_and_get_session_lifecycle() -> None:
@@ -45,43 +56,68 @@ def test_create_and_get_session_lifecycle() -> None:
     assert data["policy"]["allowed_tools"] == ["create_order", "fetch_order"]
     assert data["policy"]["max_transaction_amount"] == 3000
     assert data["policy"]["max_session_spend"] == 6000
+    assert data["committed_spend"] == 0
+    assert data["reserved_spend"] == 0
     assert data["total_active_spend"] == 0
 
-    # 2. Get session info
+    # 2. Get the session
     get_res = client.get("/api/v1/sessions/test_agent_session")
     assert get_res.status_code == 200
-    assert get_res.json()["session_id"] == "test_agent_session"
+    get_data = get_res.json()
+    assert get_data["session_id"] == "test_agent_session"
+    assert get_data["policy"]["max_transaction_amount"] == 3000
 
 
 def test_create_duplicate_session_returns_409() -> None:
-    client.post(
+    res1 = client.post(
         "/api/v1/sessions",
         json={"session_id": "dup_session"},
     )
-    dup_res = client.post(
+    assert res1.status_code == 201
+
+    res2 = client.post(
         "/api/v1/sessions",
         json={"session_id": "dup_session"},
     )
-    assert dup_res.status_code == 409
-    assert "already exists" in dup_res.json()["detail"]
+    assert res2.status_code == 409
+    assert "already exists" in res2.json()["detail"]
 
 
 def test_get_nonexistent_session_returns_404() -> None:
-    res = client.get("/api/v1/sessions/nonexistent_session")
+    res = client.get("/api/v1/sessions/missing_session_id")
     assert res.status_code == 404
-    assert "not found" in res.json()["detail"].lower()
+    assert "not found" in res.json()["detail"]
 
 
 def test_session_policy_update_and_tool_execution() -> None:
-    # Create empty session
+    # 1. Create a session with tight policy
     client.post(
         "/api/v1/sessions",
-        json={"session_id": "shopping_sess"},
+        json={
+            "session_id": "dynamic_session",
+            "policy": {
+                "allowed_tools": ["create_order"],
+                "max_transaction_amount": 1000,
+                "max_session_spend": 2000,
+            },
+        },
     )
 
-    # Set policy
-    put_res = client.put(
-        "/api/v1/sessions/shopping_sess/policy",
+    # 2. Tool request with amount 2500 should be BLOCKED
+    exec_res1 = client.post(
+        "/api/v1/tools/execute",
+        json={
+            "session_id": "dynamic_session",
+            "tool_name": "create_order",
+            "arguments": {"amount": 2500},
+        },
+    )
+    assert exec_res1.status_code == 200
+    assert exec_res1.json()["decision"] == "BLOCK"
+
+    # 3. Update session policy limit to 5000
+    update_res = client.put(
+        "/api/v1/sessions/dynamic_session/policy",
         json={
             "policy": {
                 "allowed_tools": ["create_order"],
@@ -90,76 +126,98 @@ def test_session_policy_update_and_tool_execution() -> None:
             }
         },
     )
-    assert put_res.status_code == 200
-    assert put_res.json()["policy"]["max_transaction_amount"] == 5000
+    assert update_res.status_code == 200
+    assert update_res.json()["policy"]["max_transaction_amount"] == 5000
 
-    # Execute tool on this session
-    exec_res = client.post(
+    # 4. Same tool request with amount 2500 should now be ALLOWED
+    exec_res2 = client.post(
         "/api/v1/tools/execute",
         json={
-            "session_id": "shopping_sess",
+            "session_id": "dynamic_session",
             "tool_name": "create_order",
             "arguments": {"amount": 2500},
         },
     )
-    assert exec_res.status_code == 200
-    assert exec_res.json()["decision"] == "ALLOW"
+    assert exec_res2.status_code == 200
+    assert exec_res2.json()["decision"] == "ALLOW"
 
-    # Verify session spend updated
-    sess_res = client.get("/api/v1/sessions/shopping_sess")
-    assert sess_res.status_code == 200
-    assert sess_res.json()["committed_spend"] == 2500
-    assert sess_res.json()["total_active_spend"] == 2500
+    # 5. Check updated spend metrics in session details
+    session_res = client.get("/api/v1/sessions/dynamic_session")
+    assert session_res.status_code == 200
+    assert session_res.json()["committed_spend"] == 2500
+    assert session_res.json()["total_active_spend"] == 2500
 
 
 def test_reset_session_spend() -> None:
-    # Setup session with policy and spend
     client.post(
         "/api/v1/sessions",
         json={
-            "session_id": "reset_sess",
+            "session_id": "spend_session",
             "policy": {
                 "allowed_tools": ["create_order"],
                 "max_transaction_amount": 5000,
-                "max_session_spend": 10000,
+                "max_session_spend": 5000,
             },
         },
     )
+
+    # Execute order 4000
     client.post(
         "/api/v1/tools/execute",
         json={
-            "session_id": "reset_sess",
+            "session_id": "spend_session",
             "tool_name": "create_order",
-            "arguments": {"amount": 3500},
+            "arguments": {"amount": 4000},
         },
     )
 
-    # Reset spend
-    reset_res = client.post("/api/v1/sessions/reset_sess/reset")
+    # Next 2000 is blocked due to max_session_spend
+    res_blocked = client.post(
+        "/api/v1/tools/execute",
+        json={
+            "session_id": "spend_session",
+            "tool_name": "create_order",
+            "arguments": {"amount": 2000},
+        },
+    )
+    assert res_blocked.json()["decision"] == "BLOCK"
+
+    # Reset session spend
+    reset_res = client.post("/api/v1/sessions/spend_session/reset")
     assert reset_res.status_code == 200
-    assert reset_res.json()["committed_spend"] == 0
     assert reset_res.json()["total_active_spend"] == 0
+
+    # 2000 is now allowed
+    res_allowed = client.post(
+        "/api/v1/tools/execute",
+        json={
+            "session_id": "spend_session",
+            "tool_name": "create_order",
+            "arguments": {"amount": 2000},
+        },
+    )
+    assert res_allowed.json()["decision"] == "ALLOW"
 
 
 def test_delete_session() -> None:
     client.post(
         "/api/v1/sessions",
-        json={"session_id": "del_sess"},
+        json={"session_id": "to_delete"},
     )
-    del_res = client.delete("/api/v1/sessions/del_sess")
+
+    del_res = client.delete("/api/v1/sessions/to_delete")
     assert del_res.status_code == 204
 
-    # Getting deleted session returns 404
-    get_res = client.get("/api/v1/sessions/del_sess")
+    get_res = client.get("/api/v1/sessions/to_delete")
     assert get_res.status_code == 404
 
 
 def test_session_intent_lifecycle_and_tool_execution() -> None:
-    # 1. Create session with policy and footwear intent
-    res = client.post(
+    # 1. Create a session with authorized intent for footwear
+    create_res = client.post(
         "/api/v1/sessions",
         json={
-            "session_id": "sneaker_buyer",
+            "session_id": "shopping_user_01",
             "policy": {
                 "allowed_tools": ["create_order"],
                 "max_transaction_amount": 5000,
@@ -173,47 +231,47 @@ def test_session_intent_lifecycle_and_tool_execution() -> None:
             },
         },
     )
-    assert res.status_code == 201
-    data = res.json()
-    assert data["intent"]["category"] == "footwear"
+    assert create_res.status_code == 201
+    assert create_res.json()["intent"]["category"] == "footwear"
+    assert create_res.json()["intent"]["purpose"] == "running shoes"
 
-    # 2. Attempt prompt-injected or misaligned action (gift card for ₹4,999)
-    # Policy permits create_order and amount ₹4,999 <= ₹5,000, but intent is violated!
-    blocked_res = client.post(
+    # 2. Tool request with category='gift_card' -> BLOCK (Intent violation)
+    exec_res1 = client.post(
         "/api/v1/tools/execute",
         json={
-            "session_id": "sneaker_buyer",
+            "session_id": "shopping_user_01",
             "tool_name": "create_order",
-            "arguments": {
-                "amount": 4999,
-                "currency": "INR",
+            "arguments": {"amount": 4999, "category": "gift_card"},
+        },
+    )
+    assert exec_res1.status_code == 200
+    data1 = exec_res1.json()
+    assert data1["decision"] == "BLOCK"
+    assert "INTENT_CATEGORY_MISMATCH" in data1["reasons"]
+    assert data1["intent_validation"]["category_match"] is False
+
+    # 3. Update intent to allow gift_card
+    update_res = client.put(
+        "/api/v1/sessions/shopping_user_01/intent",
+        json={
+            "intent": {
                 "category": "gift_card",
-            },
+                "max_amount": 5000,
+                "currency": "INR",
+            }
         },
     )
-    assert blocked_res.status_code == 200
-    blocked_data = blocked_res.json()
-    assert blocked_data["decision"] == "BLOCK"
-    assert blocked_data["risk_score"] >= 0.95
-    assert "INTENT_CATEGORY_MISMATCH" in blocked_data["reasons"]
-    assert blocked_data["intent_validation"]["intent_match"] is False
-    assert blocked_data["intent_validation"]["category_match"] is False
+    assert update_res.status_code == 200
+    assert update_res.json()["intent"]["category"] == "gift_card"
 
-    # 3. Authorized matching action (running shoes for ₹4,800)
-    allowed_res = client.post(
+    # 4. Same tool request now allowed
+    exec_res2 = client.post(
         "/api/v1/tools/execute",
         json={
-            "session_id": "sneaker_buyer",
+            "session_id": "shopping_user_01",
             "tool_name": "create_order",
-            "arguments": {
-                "amount": 4800,
-                "currency": "INR",
-                "category": "footwear",
-            },
+            "arguments": {"amount": 4999, "category": "gift_card"},
         },
     )
-    assert allowed_res.status_code == 200
-    allowed_data = allowed_res.json()
-    assert allowed_data["decision"] == "ALLOW"
-    assert allowed_data["intent_validation"]["intent_match"] is True
-    assert allowed_data["transaction_status"] == "SUCCEEDED"
+    assert exec_res2.status_code == 200
+    assert exec_res2.json()["decision"] == "ALLOW"

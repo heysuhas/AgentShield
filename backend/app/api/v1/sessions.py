@@ -1,12 +1,13 @@
 """API router for session lifecycle management."""
 
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status
+from sqlalchemy.orm import Session
 
+from app.agentshield.executor import AgentShield
 from app.agentshield.intent import AuthorizedIntent
-from app.agentshield.intent_provider import InMemoryIntentProvider
 from app.agentshield.policy_engine import Policy
-from app.agentshield.policy_provider import InMemoryPolicyProvider
-from app.api.v1.tools import _intent_provider, _policy_provider, _shield
+from app.api.deps import get_shield
+from app.db.session import get_db
 from app.schemas.session import (
     CreateSessionRequest,
     IntentSchema,
@@ -74,95 +75,104 @@ def _to_intent(schema: IntentSchema) -> AuthorizedIntent:
     response_model=SessionResponse,
     status_code=status.HTTP_201_CREATED,
 )
-def create_session(request: CreateSessionRequest) -> SessionResponse:
+def create_session(
+    request: CreateSessionRequest,
+    shield: AgentShield = Depends(get_shield),
+) -> SessionResponse:
     """Create a new session with an optional policy and intent."""
-    if isinstance(_policy_provider, InMemoryPolicyProvider):
-        if _policy_provider.has_session(request.session_id):
-            raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT,
-                detail=f"Session '{request.session_id}' already exists",
-            )
-        policy = (
-            _to_policy(request.policy)
-            if request.policy is not None
-            else Policy()
+    if hasattr(shield.policy_provider, "has_session") and shield.policy_provider.has_session(request.session_id):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"Session '{request.session_id}' already exists",
         )
-        _policy_provider.set_policy(request.session_id, policy)
 
-    if request.intent is not None and isinstance(
-        _intent_provider, InMemoryIntentProvider
-    ):
-        _intent_provider.set_intent(
+    policy = (
+        _to_policy(request.policy)
+        if request.policy is not None
+        else Policy()
+    )
+    if hasattr(shield.policy_provider, "set_policy"):
+        shield.policy_provider.set_policy(request.session_id, policy)
+
+    if request.intent is not None and hasattr(shield.intent_provider, "set_intent"):
+        shield.intent_provider.set_intent(
             request.session_id, _to_intent(request.intent)
         )
 
-    policy = _policy_provider.get_policy(request.session_id)
-    intent = _intent_provider.get_intent(request.session_id)
+    saved_policy = shield.policy_provider.get_policy(request.session_id)
+    saved_intent = shield.intent_provider.get_intent(request.session_id)
     return SessionResponse(
         session_id=request.session_id,
         status="ACTIVE",
-        policy=_to_policy_schema(policy),
-        intent=_to_intent_schema(intent),
-        committed_spend=_shield.get_committed_spend(request.session_id),
-        reserved_spend=_shield.get_reserved_spend(request.session_id),
-        total_active_spend=_shield.get_session_spend(request.session_id),
+        policy=_to_policy_schema(saved_policy),
+        intent=_to_intent_schema(saved_intent),
+        committed_spend=shield.get_committed_spend(request.session_id),
+        reserved_spend=shield.get_reserved_spend(request.session_id),
+        total_active_spend=shield.get_session_spend(request.session_id),
     )
 
 
 @router.get("/{session_id}", response_model=SessionResponse)
-def get_session(session_id: str) -> SessionResponse:
+def get_session(
+    session_id: str,
+    shield: AgentShield = Depends(get_shield),
+) -> SessionResponse:
     """Retrieve session details, active policy, intent, and spend metrics."""
     if (
-        isinstance(_policy_provider, InMemoryPolicyProvider)
-        and not _policy_provider.has_session(session_id)
+        hasattr(shield.policy_provider, "has_session")
+        and not shield.policy_provider.has_session(session_id)
     ):
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Session '{session_id}' not found",
         )
 
-    policy = _policy_provider.get_policy(session_id)
-    intent = _intent_provider.get_intent(session_id)
+    policy = shield.policy_provider.get_policy(session_id)
+    intent = shield.intent_provider.get_intent(session_id)
     return SessionResponse(
         session_id=session_id,
         status="ACTIVE",
         policy=_to_policy_schema(policy),
         intent=_to_intent_schema(intent),
-        committed_spend=_shield.get_committed_spend(session_id),
-        reserved_spend=_shield.get_reserved_spend(session_id),
-        total_active_spend=_shield.get_session_spend(session_id),
+        committed_spend=shield.get_committed_spend(session_id),
+        reserved_spend=shield.get_reserved_spend(session_id),
+        total_active_spend=shield.get_session_spend(session_id),
     )
 
 
 @router.put("/{session_id}/policy", response_model=SessionResponse)
 def set_session_policy(
-    session_id: str, request: SetSessionPolicyRequest
+    session_id: str,
+    request: SetSessionPolicyRequest,
+    shield: AgentShield = Depends(get_shield),
 ) -> SessionResponse:
     """Register or update a policy for a session."""
     policy = _to_policy(request.policy)
-    if isinstance(_policy_provider, InMemoryPolicyProvider):
-        _policy_provider.set_policy(session_id, policy)
+    if hasattr(shield.policy_provider, "set_policy"):
+        shield.policy_provider.set_policy(session_id, policy)
 
-    intent = _intent_provider.get_intent(session_id)
+    intent = shield.intent_provider.get_intent(session_id)
     return SessionResponse(
         session_id=session_id,
         status="ACTIVE",
         policy=_to_policy_schema(policy),
         intent=_to_intent_schema(intent),
-        committed_spend=_shield.get_committed_spend(session_id),
-        reserved_spend=_shield.get_reserved_spend(session_id),
-        total_active_spend=_shield.get_session_spend(session_id),
+        committed_spend=shield.get_committed_spend(session_id),
+        reserved_spend=shield.get_reserved_spend(session_id),
+        total_active_spend=shield.get_session_spend(session_id),
     )
 
 
 @router.put("/{session_id}/intent", response_model=SessionResponse)
 def set_session_intent(
-    session_id: str, request: SetSessionIntentRequest
+    session_id: str,
+    request: SetSessionIntentRequest,
+    shield: AgentShield = Depends(get_shield),
 ) -> SessionResponse:
     """Register or update authorized user intent for a session."""
     if (
-        isinstance(_policy_provider, InMemoryPolicyProvider)
-        and not _policy_provider.has_session(session_id)
+        hasattr(shield.policy_provider, "has_session")
+        and not shield.policy_provider.has_session(session_id)
     ):
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -170,36 +180,39 @@ def set_session_intent(
         )
 
     intent = _to_intent(request.intent)
-    if isinstance(_intent_provider, InMemoryIntentProvider):
-        _intent_provider.set_intent(session_id, intent)
+    if hasattr(shield.intent_provider, "set_intent"):
+        shield.intent_provider.set_intent(session_id, intent)
 
-    policy = _policy_provider.get_policy(session_id)
+    policy = shield.policy_provider.get_policy(session_id)
     return SessionResponse(
         session_id=session_id,
         status="ACTIVE",
         policy=_to_policy_schema(policy),
         intent=_to_intent_schema(intent),
-        committed_spend=_shield.get_committed_spend(session_id),
-        reserved_spend=_shield.get_reserved_spend(session_id),
-        total_active_spend=_shield.get_session_spend(session_id),
+        committed_spend=shield.get_committed_spend(session_id),
+        reserved_spend=shield.get_reserved_spend(session_id),
+        total_active_spend=shield.get_session_spend(session_id),
     )
 
 
 @router.post("/{session_id}/reset", response_model=SessionResponse)
-def reset_session_spend(session_id: str) -> SessionResponse:
+def reset_session_spend(
+    session_id: str,
+    shield: AgentShield = Depends(get_shield),
+) -> SessionResponse:
     """Reset the cumulative spend metrics for a session."""
     if (
-        isinstance(_policy_provider, InMemoryPolicyProvider)
-        and not _policy_provider.has_session(session_id)
+        hasattr(shield.policy_provider, "has_session")
+        and not shield.policy_provider.has_session(session_id)
     ):
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Session '{session_id}' not found",
         )
 
-    _shield.reset_session_spend(session_id)
-    policy = _policy_provider.get_policy(session_id)
-    intent = _intent_provider.get_intent(session_id)
+    shield.reset_session_spend(session_id)
+    policy = shield.policy_provider.get_policy(session_id)
+    intent = shield.intent_provider.get_intent(session_id)
     return SessionResponse(
         session_id=session_id,
         status="ACTIVE",
@@ -212,19 +225,22 @@ def reset_session_spend(session_id: str) -> SessionResponse:
 
 
 @router.delete("/{session_id}", status_code=status.HTTP_204_NO_CONTENT)
-def delete_session(session_id: str) -> None:
+def delete_session(
+    session_id: str,
+    shield: AgentShield = Depends(get_shield),
+) -> None:
     """Delete a session policy and clear tracked spend."""
     if (
-        isinstance(_policy_provider, InMemoryPolicyProvider)
-        and not _policy_provider.has_session(session_id)
+        hasattr(shield.policy_provider, "has_session")
+        and not shield.policy_provider.has_session(session_id)
     ):
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Session '{session_id}' not found",
         )
 
-    if isinstance(_policy_provider, InMemoryPolicyProvider):
-        _policy_provider.remove_policy(session_id)
-    if isinstance(_intent_provider, InMemoryIntentProvider):
-        _intent_provider.remove_intent(session_id)
-    _shield.reset_session_spend(session_id)
+    if hasattr(shield.policy_provider, "remove_policy"):
+        shield.policy_provider.remove_policy(session_id)
+    if hasattr(shield.intent_provider, "remove_intent"):
+        shield.intent_provider.remove_intent(session_id)
+    shield.reset_session_spend(session_id)

@@ -137,14 +137,24 @@ class NvidiaNIMProvider:
 
         parsed = _extract_json_block(response.content)
 
-        allowed_tools = parsed.get("allowed_tools")
-        if isinstance(allowed_tools, list):
-            allowed_tools = frozenset(allowed_tools)
-        else:
-            allowed_tools = frozenset({"create_order", "fetch_order"})
+        allowed_tools = None
+        if isinstance(parsed.get("allowed_tools"), list):
+            allowed_tools = frozenset(str(t) for t in parsed["allowed_tools"])
 
         raw_max_amount = parsed.get("max_amount")
-        max_amount = int(raw_max_amount) if isinstance(raw_max_amount, (int, float)) else None
+        max_amount = None
+        if (
+            isinstance(raw_max_amount, int)
+            and not isinstance(raw_max_amount, bool)
+            and raw_max_amount >= 0
+        ):
+            max_amount = raw_max_amount
+        elif (
+            isinstance(raw_max_amount, float)
+            and raw_max_amount.is_integer()
+            and raw_max_amount >= 0
+        ):
+            max_amount = int(raw_max_amount)
 
         return AuthorizedIntent(
             category=parsed.get("category"),
@@ -156,6 +166,10 @@ class NvidiaNIMProvider:
             allowed_tools=allowed_tools,
             constraints=dict(parsed.get("constraints", {})),
         )
+
+    def close(self) -> None:
+        """Close the underlying HTTP client."""
+        self._client.close()
 
     def compare_semantic_intent(
         self,

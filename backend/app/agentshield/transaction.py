@@ -79,6 +79,14 @@ class TransactionStore(Protocol):
         """List all transactions for a given session."""
         ...
 
+    def get_committed_spend(self, session_id: str) -> int:
+        """Calculate total settled/committed spend for a session."""
+        ...
+
+    def get_reserved_spend(self, session_id: str) -> int:
+        """Calculate total in-flight reserved spend for a session."""
+        ...
+
 
 class InMemoryTransactionStore:
     """In-memory storage for transaction records."""
@@ -152,6 +160,22 @@ class InMemoryTransactionStore:
             for t in self._transactions.values()
             if t.session_id == session_id
         ]
+
+    def get_committed_spend(self, session_id: str) -> int:
+        return sum(
+            t.amount or 0
+            for t in self._transactions.values()
+            if t.session_id == session_id
+            and t.status == TransactionStatus.SUCCEEDED
+        )
+
+    def get_reserved_spend(self, session_id: str) -> int:
+        return sum(
+            t.amount or 0
+            for t in self._transactions.values()
+            if t.session_id == session_id
+            and t.status == TransactionStatus.AUTHORIZED
+        )
 
     def reset(self) -> None:
         """Clear all transactions and reset counter."""

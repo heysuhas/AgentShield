@@ -44,7 +44,11 @@ class PolicyModel(Base):
         Integer, primary_key=True, autoincrement=True
     )
     session_id: Mapped[str] = mapped_column(
-        String(128), unique=True, index=True, nullable=False
+        String(128),
+        ForeignKey("sessions.session_id", ondelete="CASCADE"),
+        unique=True,
+        index=True,
+        nullable=False,
     )
     allowed_tools: Mapped[list] = mapped_column(JSON, default=list)
     max_transaction_amount: Mapped[int | None] = mapped_column(
@@ -70,7 +74,11 @@ class AuthorizedIntentModel(Base):
         Integer, primary_key=True, autoincrement=True
     )
     session_id: Mapped[str] = mapped_column(
-        String(128), unique=True, index=True, nullable=False
+        String(128),
+        ForeignKey("sessions.session_id", ondelete="CASCADE"),
+        unique=True,
+        index=True,
+        nullable=False,
     )
     category: Mapped[str | None] = mapped_column(String(128), nullable=True)
     purpose: Mapped[str | None] = mapped_column(String(256), nullable=True)
@@ -97,7 +105,10 @@ class TransactionModel(Base):
         String(128), primary_key=True, index=True
     )
     session_id: Mapped[str] = mapped_column(
-        String(128), index=True, nullable=False
+        String(128),
+        ForeignKey("sessions.session_id", ondelete="CASCADE"),
+        index=True,
+        nullable=False,
     )
     tool_name: Mapped[str] = mapped_column(String(64), nullable=False)
     amount: Mapped[int | None] = mapped_column(Integer, nullable=True)
@@ -135,7 +146,10 @@ class AuditEventModel(Base):
         String(32), nullable=True
     )
     session_id: Mapped[str] = mapped_column(
-        String(128), index=True, nullable=False
+        String(128),
+        ForeignKey("sessions.session_id", ondelete="CASCADE"),
+        index=True,
+        nullable=False,
     )
     tool_name: Mapped[str] = mapped_column(String(64), nullable=False)
     arguments: Mapped[dict] = mapped_column(JSON, default=dict)
