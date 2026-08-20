@@ -13,6 +13,7 @@ DEMO_POLICY = Policy(
     allowed_tools=frozenset({"create_order"}),
     max_transaction_amount=5000,
     max_session_spend=10000,
+    require_approval_above=3000,
 )
 
 

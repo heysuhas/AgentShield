@@ -52,7 +52,7 @@ def test_api_execute_allowed_create_order() -> None:
         json={
             "session_id": "session_123",
             "tool_name": "create_order",
-            "arguments": {"amount": 4999, "category": "footwear"},
+            "arguments": {"amount": 2500, "category": "footwear"},
         },
     )
 
@@ -66,9 +66,28 @@ def test_api_execute_allowed_create_order() -> None:
     assert data["policy_violations"] == []
     assert data["provider_result"] is not None
     assert data["provider_result"]["success"] is True
-    assert data["provider_result"]["order"]["amount"] == 4999
+    assert data["provider_result"]["order"]["amount"] == 2500
     assert data["transaction_id"].startswith("txn_")
     assert data["transaction_status"] == "SUCCEEDED"
+
+
+def test_api_execute_review_above_approval_threshold() -> None:
+    response = client.post(
+        "/api/v1/tools/execute",
+        json={
+            "session_id": "session_123",
+            "tool_name": "create_order",
+            "arguments": {"amount": 4500, "category": "footwear"},
+        },
+    )
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["decision"] == "REVIEW"
+    assert data["reasons"] == ["REQUIRES_HUMAN_APPROVAL"]
+    assert data["provider_result"] is None
+    assert data["transaction_status"] == "PENDING"
+    assert data["approval_id"] is not None
 
 
 def test_api_execute_blocked_disallowed_tool() -> None:
@@ -153,7 +172,7 @@ def test_api_execute_aggregate_session_spending_blocked() -> None:
         },
     )
     assert res1.status_code == 200
-    assert res1.json()["decision"] == "ALLOW"
+    assert res1.json()["decision"] == "REVIEW"
 
     res2 = client.post(
         "/api/v1/tools/execute",
@@ -164,7 +183,7 @@ def test_api_execute_aggregate_session_spending_blocked() -> None:
         },
     )
     assert res2.status_code == 200
-    assert res2.json()["decision"] == "ALLOW"
+    assert res2.json()["decision"] == "REVIEW"
 
     res3 = client.post(
         "/api/v1/tools/execute",

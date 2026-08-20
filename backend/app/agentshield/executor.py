@@ -150,6 +150,11 @@ class AgentShield:
         return self._approval_store
 
     @property
+    def llm_provider(self) -> LLMProvider | None:
+        """Return the optional model provider used for semantic evidence."""
+        return self._llm_provider
+
+    @property
     def audit_sink(self) -> AuditSink:
         """Return the configured audit sink."""
         return self._audit_sink

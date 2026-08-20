@@ -30,6 +30,7 @@ def get_llm_provider() -> Iterator[LLMProvider | None]:
             api_key=settings.NVIDIA_API_KEY,
             base_url=settings.NVIDIA_BASE_URL,
             model=settings.NVIDIA_MODEL,
+            timeout_seconds=settings.NVIDIA_TIMEOUT_SECONDS,
         )
     try:
         yield provider
