@@ -1,0 +1,31 @@
+# Environment and secrets
+.env
+.env.*
+!.env.example
+
+# Local agent handoff notes (do not publish)
+docs/
+
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.ropeproject/
+.venv/
+venv/
+
+# Node and frontend builds
+node_modules/
+dist/
+
+# Tooling and editor files
+.idea/
+.vscode/
+.DS_Store
+*.swp
+*.swo
+
+# Logs
+*.log
