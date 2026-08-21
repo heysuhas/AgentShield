@@ -18,7 +18,7 @@ class AuditEventResponse(BaseModel):
     session_id: str
     tool_name: str
     arguments: dict[str, Any] = Field(default_factory=dict)
-    decision: Literal["ALLOW", "BLOCK"]
+    decision: Literal["ALLOW", "BLOCK", "REVIEW"]
     risk_score: float
     risk_level: str
     reasons: list[str] = Field(default_factory=list)
