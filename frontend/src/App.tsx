@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { ArrowRight, Check, ChevronDown, CircleAlert, CircleCheck, Clock3, Loader2, LockKeyhole, RefreshCw, ShieldCheck, X } from 'lucide-react'
+import { ArrowRight, Check, ChevronDown, CircleAlert, CircleCheck, Clock3, Loader2, LockKeyhole, RefreshCw, X } from 'lucide-react'
 import { approveReview, createOrInitSession, fetchApprovals, fetchAuditEvents, fetchHealth, fetchPaymentConfig, rejectReview, resetSessionSpend, runAgent, verifyPayment } from './api'
 import type { ApprovalRecord, AuditEvent, SessionData } from './types'
 
@@ -182,9 +182,42 @@ export default function App() {
     setCustomSessionInput('')
   }
 
+function AgentShieldLogo() {
+  return (
+    <div className="brand-lockup">
+      <div className="brand-mark-shield">
+        <svg viewBox="0 0 32 32" fill="none" className="brand-svg">
+          <defs>
+            <linearGradient id="navShieldGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+              <stop offset="0%" stopColor="#00F5D4" />
+              <stop offset="100%" stopColor="#10B981" />
+            </linearGradient>
+          </defs>
+          <path d="M16 3L26 7.5V14.5C26 21 21.5 26 16 28.5C10.5 26 6 21 6 14.5V7.5L16 3Z" 
+                fill="#091413" 
+                stroke="url(#navShieldGrad)" 
+                strokeWidth="2" 
+                strokeLinejoin="round" />
+          <path d="M16 8L22 11V15.5C22 19.5 19.2 23 16 24.5C12.8 23 10 19.5 10 15.5V11L16 8Z" 
+                fill="#030807" 
+                stroke="#00F5D4" 
+                strokeWidth="1.2" 
+                strokeOpacity="0.8" />
+          <circle cx="16" cy="15" r="2" fill="#00F5D4" />
+          <path d="M16 17V21" stroke="#00F5D4" strokeWidth="1.8" strokeLinecap="round" />
+        </svg>
+      </div>
+      <div className="brand-text-wrap">
+        <span className="brand-title">AGENT<span className="brand-highlight">SHIELD</span></span>
+        <span className="brand-tag">FINANCIAL TRUST GATE</span>
+      </div>
+    </div>
+  )
+}
+
   return <div className="app-shell">
     <header className="topbar">
-      <div className="brand"><span className="brand-mark"><ShieldCheck size={17} /></span><span>AgentShield</span></div>
+      <div className="brand"><AgentShieldLogo /></div>
       <div className="topbar-meta">
         <span className={`service-dot ${health?.status === 'offline' ? 'offline' : ''}`} /> 
         <span>{health?.status === 'offline' ? 'Offline' : 'Sandbox connected'}</span>
