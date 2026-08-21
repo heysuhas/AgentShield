@@ -14,6 +14,7 @@ router = APIRouter(prefix="/audit", tags=["audit"])
 
 
 @router.get("", response_model=PaginatedAuditResponse)
+@router.get("/events", response_model=PaginatedAuditResponse)
 def list_audit_events(
     session_id: str | None = None,
     decision: Literal["ALLOW", "BLOCK", "REVIEW"] | None = None,
