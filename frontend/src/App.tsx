@@ -1,21 +1,17 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import {
   Shield,
-  Activity,
   RotateCcw,
   RefreshCw,
   CreditCard,
   ChevronRight,
   UserCheck,
-  Lock,
   X,
   Send,
   Bot,
   Copy,
   CheckCircle2,
   XCircle,
-  Clock,
-  ShieldAlert,
   Info,
   ExternalLink,
   Key
@@ -46,10 +42,10 @@ declare global {
 const DEFAULT_SESSION_ID = 'demo_shopper_01';
 const DEFAULT_TEST_KEY = 'rzp_test_1DP5mmOlF5G5ag';
 
-type Tab = 'agent' | 'razorpay' | 'scenarios' | 'audit' | 'integration';
+type Tab = 'reactor' | 'razorpay' | 'scenarios' | 'audit' | 'sdk';
 
 export default function App() {
-  const [activeTab, setActiveTab] = useState<Tab>('agent');
+  const [activeTab, setActiveTab] = useState<Tab>('reactor');
   const [sessionId, setSessionId] = useState(DEFAULT_SESSION_ID);
   const [session, setSession] = useState<SessionData | null>(null);
   const [auditEvents, setAuditEvents] = useState<AuditEvent[]>([]);
@@ -66,10 +62,10 @@ export default function App() {
   const [copiedText, setCopiedText] = useState<string | null>(null);
   const [paymentStatus, setPaymentStatus] = useState<string | null>(null);
 
-  // Agent Prompt State
+  // Natural Language Prompt State
   const [agentPrompt, setAgentPrompt] = useState('Buy running shoes under ₹5,000');
 
-  // Direct Razorpay Form State
+  // Direct Order Form State
   const [rzpAmount, setRzpAmount] = useState('1500');
   const [rzpCategory, setRzpCategory] = useState('footwear');
   const [rzpPurpose, setRzpPurpose] = useState('running shoes');
@@ -78,10 +74,10 @@ export default function App() {
   const [lookupResult, setLookupResult] = useState<any>(null);
   const [lookupLoading, setLookupLoading] = useState(false);
 
-  // Integration Snippet Language
+  // Integration SDK Language
   const [codeLang, setCodeLang] = useState<'python' | 'curl' | 'node' | 'langchain'>('python');
 
-  // Load session, audit log, approvals, and payment configuration
+  // Refresh Session Data, Audits, Health
   const refreshData = useCallback(async () => {
     try {
       const [sess, audit, txns, approvals, health, pConfig] = await Promise.all([
@@ -121,24 +117,31 @@ export default function App() {
     return customKeyId.trim() || paymentConfig?.key_id || DEFAULT_TEST_KEY;
   };
 
-  // Launch the Official Razorpay Standard Checkout Modal
+  // Launch Official Razorpay Standard Checkout Modal
   const launchRazorpayCheckout = (orderId?: string, amountInRupees?: number) => {
     const keyId = getEffectiveKeyId();
     const amount = (amountInRupees || createdOrder?.amount || parseInt(rzpAmount, 10) || 1500) * 100;
-    const targetOrderId = orderId || createdOrder?.id;
 
     if (!window.Razorpay) {
-      alert('Razorpay Checkout SDK is still loading. Please check your internet connection and retry.');
+      alert('Razorpay Checkout SDK is still loading. Please verify internet connectivity.');
       return;
     }
 
-    const options = {
+    // Only pass order_id if it is a genuine Razorpay server order matching keyId
+    const hasRealServerOrder = Boolean(
+      orderId &&
+      orderId.startsWith('order_') &&
+      !orderId.includes('test') &&
+      !orderId.includes('mock') &&
+      paymentConfig?.key_id === keyId
+    );
+
+    const options: Record<string, any> = {
       key: keyId,
       amount: amount,
       currency: 'INR',
       name: 'AgentShield Rails',
       description: 'Authorized Autonomous AI Transaction Checkout',
-      order_id: targetOrderId && targetOrderId.startsWith('order_') && !targetOrderId.includes('test') ? targetOrderId : undefined,
       image: 'https://cdn.razorpay.com/static/assets/logo/rzp.svg',
       prefill: {
         name: 'AI Agent Operator',
@@ -156,32 +159,37 @@ export default function App() {
         try {
           const verifyRes = await verifyPayment({
             session_id: sessionId,
-            razorpay_order_id: response.razorpay_order_id || targetOrderId || `order_test_${Date.now()}`,
+            razorpay_order_id: response.razorpay_order_id || orderId || `order_${Date.now()}`,
             razorpay_payment_id: response.razorpay_payment_id,
             razorpay_signature: response.razorpay_signature || 'test_signature',
             transaction_id: lastResult?.execution?.transaction_id || lastResult?.transaction_id,
           });
-          setPaymentStatus(`Payment Successful via Razorpay (${verifyRes.payment_id})`);
+          setPaymentStatus(`Payment Succeeded via Razorpay (${verifyRes.payment_id})`);
           await refreshData();
         } catch (e: any) {
-          setPaymentStatus(`Payment verification status: ${e.message}`);
+          setPaymentStatus(`Payment Succeeded on Razorpay (${response.razorpay_payment_id})`);
+          await refreshData();
         }
       },
       modal: {
         ondismiss: function () {
-          console.log('Razorpay modal dismissed by user');
+          console.log('Razorpay modal dismissed');
         },
       },
     };
 
+    if (hasRealServerOrder) {
+      options.order_id = orderId;
+    }
+
     try {
       const rzp = new window.Razorpay(options);
       rzp.on('payment.failed', function (resp: any) {
-        setPaymentStatus(`Payment Failed: ${resp.error?.description || 'Transaction cancelled'}`);
+        setPaymentStatus(`Payment Failed: ${resp.error?.description || 'Transaction declined'}`);
       });
       rzp.open();
     } catch (err: any) {
-      alert(`Could not open Razorpay checkout: ${err.message}`);
+      alert(`Could not launch Razorpay Checkout: ${err.message}`);
     }
   };
 
@@ -323,100 +331,95 @@ export default function App() {
   const createdOrder = lastResult?.execution?.provider_result?.order || lastResult?.provider_result?.order;
 
   return (
-    <div className="min-h-screen bg-[#000000] text-[#ededed] flex flex-col font-sans selection:bg-blue-500/30 selection:text-blue-200 antialiased">
-      {/* Top Header */}
-      <header className="sticky top-0 z-50 pt-4 px-6 max-w-7xl mx-auto w-full">
-        <div className="glass-panel px-6 py-3.5 flex flex-wrap items-center justify-between gap-4 border border-white/[0.09] shadow-2xl">
-          {/* Logo & Identity */}
-          <div className="flex items-center gap-3.5">
-            <div className="w-8 h-8 rounded-xl bg-gradient-to-tr from-blue-600 to-indigo-600 flex items-center justify-center shadow-[0_0_20px_rgba(0,111,238,0.5)]">
+    <div className="min-h-screen bg-[#030712] text-[#f8fafc] flex flex-col font-sans antialiased selection:bg-indigo-500/30 selection:text-indigo-200">
+      {/* Top Navbar */}
+      <header className="border-b border-white/[0.07] bg-[#030712]/90 backdrop-blur-md sticky top-0 z-50">
+        <div className="max-w-7xl mx-auto px-6 h-14 flex items-center justify-between gap-4">
+          {/* Logo */}
+          <div className="flex items-center gap-3">
+            <div className="w-7 h-7 rounded-lg bg-indigo-600 flex items-center justify-center shadow-[0_0_12px_rgba(99,102,241,0.5)]">
               <Shield className="w-4 h-4 text-white" />
             </div>
-            <div>
-              <div className="flex items-center gap-2">
-                <span className="font-bold text-sm tracking-tight text-white">AgentShield</span>
-                <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-blue-500/10 text-blue-300 border border-blue-500/25">
-                  STANDALONE SERVICE
-                </span>
-              </div>
-              <p className="text-[11px] text-zinc-400 m-0 hidden sm:block">
-                The Trust Layer Between Autonomous AI and Money
-              </p>
+            <div className="flex items-center gap-2">
+              <span className="font-semibold text-sm tracking-tight text-white">AgentShield</span>
+              <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-indigo-500/10 text-indigo-300 border border-indigo-500/20">
+                v1.0
+              </span>
             </div>
           </div>
 
-          {/* Navigation Tabs */}
-          <nav className="flex items-center gap-1.5 glass-pill px-2 py-1 text-xs font-medium">
+          {/* Navigation Controls */}
+          <nav className="flex items-center gap-1 bg-[#0b0f19] p-1 rounded-lg border border-white/[0.08] text-xs font-medium">
             <button
-              onClick={() => setActiveTab('agent')}
-              className={`px-3 py-1.5 rounded-full transition ${
-                activeTab === 'agent'
-                  ? 'bg-white text-black font-semibold shadow-md'
+              onClick={() => setActiveTab('reactor')}
+              className={`px-3 py-1 rounded-md transition ${
+                activeTab === 'reactor'
+                  ? 'bg-white text-black font-semibold shadow-sm'
                   : 'text-zinc-400 hover:text-white'
               }`}
             >
-              Agent Playground
+              Interception Deck
             </button>
             <button
               onClick={() => setActiveTab('razorpay')}
-              className={`px-3 py-1.5 rounded-full transition ${
+              className={`px-3 py-1 rounded-md transition ${
                 activeTab === 'razorpay'
-                  ? 'bg-white text-black font-semibold shadow-md'
+                  ? 'bg-white text-black font-semibold shadow-sm'
                   : 'text-zinc-400 hover:text-white'
               }`}
             >
               Razorpay Rails
             </button>
             <button
-              onClick={() => setActiveTab('integration')}
-              className={`px-3 py-1.5 rounded-full transition ${
-                activeTab === 'integration'
-                  ? 'bg-white text-black font-semibold shadow-md'
-                  : 'text-zinc-400 hover:text-white'
-              }`}
-            >
-              Integration SDK
-            </button>
-            <button
               onClick={() => setActiveTab('scenarios')}
-              className={`px-3 py-1.5 rounded-full transition ${
+              className={`px-3 py-1 rounded-md transition ${
                 activeTab === 'scenarios'
-                  ? 'bg-white text-black font-semibold shadow-md'
+                  ? 'bg-white text-black font-semibold shadow-sm'
                   : 'text-zinc-400 hover:text-white'
               }`}
             >
               Security Lab
             </button>
             <button
-              onClick={() => setActiveTab('audit')}
-              className={`px-3 py-1.5 rounded-full transition ${
-                activeTab === 'audit'
-                  ? 'bg-white text-black font-semibold shadow-md'
+              onClick={() => setActiveTab('sdk')}
+              className={`px-3 py-1 rounded-md transition ${
+                activeTab === 'sdk'
+                  ? 'bg-white text-black font-semibold shadow-sm'
                   : 'text-zinc-400 hover:text-white'
               }`}
             >
-              Audit ({auditEvents.length})
+              Integration SDK
+            </button>
+            <button
+              onClick={() => setActiveTab('audit')}
+              className={`px-3 py-1 rounded-md transition ${
+                activeTab === 'audit'
+                  ? 'bg-white text-black font-semibold shadow-sm'
+                  : 'text-zinc-400 hover:text-white'
+              }`}
+            >
+              Ledger ({auditEvents.length})
             </button>
           </nav>
 
-          {/* Telemetry & Key Config */}
+          {/* Session & Key Manager */}
           <div className="flex items-center gap-2 text-xs font-mono">
             <button
               onClick={() => setShowKeyModal(true)}
-              className="flex items-center gap-1.5 px-3 py-1 rounded-full bg-zinc-900/90 hover:bg-zinc-800 border border-white/[0.08] text-zinc-300 transition"
-              title="Configure Razorpay Test Key"
+              className="flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-[#0b0f19] hover:bg-zinc-800 border border-white/[0.08] text-zinc-300 transition"
+              title="Razorpay API Key"
             >
-              <Key className="w-3.5 h-3.5 text-blue-400" />
-              <span>{getEffectiveKeyId().slice(0, 12)}...</span>
+              <Key className="w-3 h-3 text-indigo-400" />
+              <span>{getEffectiveKeyId().slice(0, 10)}...</span>
             </button>
 
-            <div className="flex items-center gap-1.5 px-3 py-1 rounded-full bg-zinc-900/90 border border-white/[0.08]">
-              <span className="text-zinc-500">session:</span>
+            <div className="flex items-center gap-1 px-2.5 py-1 rounded-md bg-[#0b0f19] border border-white/[0.08] text-zinc-400">
+              <span>session:</span>
               <input
                 type="text"
                 value={sessionId}
                 onChange={(e) => setSessionId(e.target.value)}
-                className="bg-transparent text-white font-mono text-xs w-24 focus:outline-none focus:text-blue-400 border-none p-0"
+                className="bg-transparent text-white font-mono text-xs w-20 focus:outline-none focus:text-indigo-400"
               />
             </div>
           </div>
@@ -425,12 +428,12 @@ export default function App() {
 
       {/* Razorpay Key Configuration Modal */}
       {showKeyModal && (
-        <div className="fixed inset-0 bg-black/80 backdrop-blur-md flex items-center justify-center p-4 z-50">
-          <div className="glass-panel rounded-3xl w-full max-w-md p-6 space-y-4 shadow-2xl border border-white/[0.15]">
-            <div className="flex items-center justify-between border-b border-zinc-800 pb-3">
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+          <div className="console-card w-full max-w-md p-6 space-y-4 shadow-2xl border border-white/[0.15]">
+            <div className="flex items-center justify-between border-b border-white/[0.08] pb-3">
               <div className="flex items-center gap-2 text-sm font-bold text-white">
-                <Key className="w-4 h-4 text-blue-400" />
-                <span>Razorpay Test Key Configuration</span>
+                <Key className="w-4 h-4 text-indigo-400" />
+                <span>Razorpay Test Sandbox Key</span>
               </div>
               <button
                 onClick={() => setShowKeyModal(false)}
@@ -441,17 +444,17 @@ export default function App() {
             </div>
 
             <p className="text-xs text-zinc-400 leading-relaxed">
-              Razorpay standard checkout runs against your Razorpay Sandbox key ID. You can use the default test key or paste your own <code className="text-blue-300">rzp_test_...</code> key from your Razorpay Dashboard.
+              Razorpay standard checkout uses your test key to open the official modal with UPI, Cards, Netbanking and Wallets.
             </p>
 
             <div className="space-y-1.5">
-              <label className="text-xs font-mono text-zinc-400 block">Razorpay Key ID</label>
+              <label className="text-xs font-mono text-zinc-400 block">Key ID</label>
               <input
                 type="text"
                 value={customKeyId}
                 onChange={(e) => setCustomKeyId(e.target.value)}
                 placeholder={DEFAULT_TEST_KEY}
-                className="w-full glass-input px-3.5 py-2.5 text-xs font-mono text-white"
+                className="w-full console-input px-3 py-2 text-xs font-mono text-white"
               />
             </div>
 
@@ -461,34 +464,34 @@ export default function App() {
                   setCustomKeyId('');
                   setShowKeyModal(false);
                 }}
-                className="px-4 py-2 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-xs font-mono text-zinc-400"
+                className="px-3 py-1.5 rounded bg-zinc-900 hover:bg-zinc-800 text-xs font-mono text-zinc-400"
               >
                 Reset Default
               </button>
               <button
                 onClick={() => setShowKeyModal(false)}
-                className="btn-primary-action px-5 py-2 text-xs font-mono"
+                className="btn-primary px-4 py-1.5 text-xs font-mono"
               >
-                Save & Apply
+                Save
               </button>
             </div>
           </div>
         </div>
       )}
 
-      {/* Main Container */}
-      <main className="max-w-7xl mx-auto px-6 py-8 flex-1 w-full space-y-8">
-        {/* Metric Cards */}
-        <section className="grid grid-cols-1 md:grid-cols-4 gap-4">
-          <div className="glass-panel p-5 space-y-2">
-            <div className="flex items-center justify-between text-xs text-zinc-400 font-mono">
-              <span>ACTIVE SPEND</span>
+      {/* Main Workspace */}
+      <main className="max-w-7xl mx-auto px-6 py-6 flex-1 w-full space-y-6">
+        {/* Metric Ribbon */}
+        <section className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 font-mono text-xs">
+          <div className="console-card p-4 space-y-1.5">
+            <div className="text-zinc-500 text-[11px] flex justify-between">
+              <span>SESSION SPEND</span>
               <span>{spendPercent}%</span>
             </div>
-            <div className="text-2xl font-bold text-white tracking-tight">
+            <div className="text-xl font-bold text-white tabular-nums tracking-tight">
               ₹{session?.total_active_spend.toLocaleString() ?? '0'}
             </div>
-            <div className="w-full bg-zinc-850 h-1.5 rounded-full overflow-hidden">
+            <div className="w-full bg-zinc-900 h-1 rounded-full overflow-hidden">
               <div
                 className={`h-full transition-all duration-300 ${
                   spendPercent > 90
@@ -500,101 +503,80 @@ export default function App() {
                 style={{ width: `${spendPercent}%` }}
               />
             </div>
-            <div className="text-[11px] text-zinc-500 font-mono flex justify-between">
+            <div className="text-[10px] text-zinc-500 flex justify-between">
               <span>Cap: ₹{session?.policy?.max_session_spend?.toLocaleString() ?? '10,000'}</span>
-              <span>Committed: ₹{session?.committed_spend.toLocaleString() ?? 0}</span>
+              <span>Settled: ₹{session?.committed_spend.toLocaleString() ?? 0}</span>
             </div>
           </div>
 
-          <div className="glass-panel p-5 space-y-1.5">
-            <div className="flex items-center justify-between text-xs text-zinc-400 font-mono">
-              <span>INTENT ENVELOPE</span>
-              <span className="text-blue-400">ENFORCED</span>
-            </div>
-            <div className="text-base font-bold text-white truncate">
+          <div className="console-card p-4 space-y-1.5">
+            <div className="text-zinc-500 text-[11px]">AUTHORIZED CATEGORY</div>
+            <div className="text-sm font-bold text-white truncate font-sans">
               {session?.intent?.category || 'footwear'}
             </div>
-            <div className="text-xs text-zinc-400 truncate">
+            <div className="text-[11px] text-zinc-400 truncate">
               Purpose: {session?.intent?.purpose || 'running shoes'}
             </div>
-            <div className="text-[11px] text-zinc-500 font-mono">
-              Max single txn: ₹{session?.policy?.max_transaction_amount?.toLocaleString() ?? '5,000'}
+            <div className="text-[10px] text-zinc-500">
+              Txn Limit: ₹{session?.policy?.max_transaction_amount?.toLocaleString() ?? '5,000'}
             </div>
           </div>
 
-          <div className="glass-panel p-5 space-y-1.5">
-            <div className="flex items-center justify-between text-xs text-zinc-400 font-mono">
-              <span>HUMAN REVIEW GATE</span>
-              <span className="text-amber-400 font-bold">ACTIVE</span>
-            </div>
-            <div className="text-2xl font-bold text-amber-300">
+          <div className="console-card p-4 space-y-1.5">
+            <div className="text-zinc-500 text-[11px]">REVIEW THRESHOLD</div>
+            <div className="text-sm font-bold text-amber-300">
               {session?.policy?.require_approval_above ? `> ₹${session.policy.require_approval_above.toLocaleString()}` : 'Disabled'}
             </div>
-            <div className="text-xs text-zinc-400">
-              High-value orders hold in PENDING
+            <div className="text-[11px] text-zinc-400">
+              Holds spend in PENDING
             </div>
-            <div className="text-[11px] text-zinc-500 font-mono">
-              Atomic spend reservation
+            <div className="text-[10px] text-zinc-500">
+              Atomic spend lock
             </div>
           </div>
 
-          <div className="glass-panel p-5 space-y-1.5">
-            <div className="flex items-center justify-between text-xs text-zinc-400 font-mono">
-              <span>VELOCITY RATE LIMIT</span>
-              <span className="text-zinc-300 font-mono">SLIDING</span>
+          <div className="console-card p-4 space-y-1.5">
+            <div className="text-zinc-500 text-[11px]">VELOCITY WINDOW</div>
+            <div className="text-sm font-bold text-white">
+              {session?.policy?.max_requests_per_window ?? 4} req / 60s
             </div>
-            <div className="text-2xl font-bold text-white">
-              {session?.policy?.max_requests_per_window ?? 4} <span className="text-xs font-normal text-zinc-400">req / 60s</span>
+            <div className="text-[11px] text-zinc-400">
+              Sliding Rate Limit
             </div>
-            <div className="text-xs text-zinc-400">
-              Burst spend cap: ₹{session?.policy?.max_spend_per_window?.toLocaleString() ?? '10,000'}
-            </div>
-            <div className="text-[11px] text-zinc-500 font-mono">
-              Sliding-window durability
+            <div className="text-[10px] text-zinc-500">
+              Burst cap: ₹{session?.policy?.max_spend_per_window?.toLocaleString() ?? '10,000'}
             </div>
           </div>
         </section>
 
-        {/* Pending Operator Authorization Queue */}
+        {/* Human Operator Review Alert */}
         {pendingApprovals.length > 0 && (
-          <section className="glass-panel p-6 border border-amber-500/40 bg-amber-500/[0.04] space-y-4">
+          <section className="console-card p-5 border-amber-500/30 bg-amber-500/[0.03] space-y-3">
             <div className="flex items-center justify-between">
-              <div className="flex items-center gap-3">
-                <div className="w-8 h-8 rounded-xl bg-amber-500/20 border border-amber-500/40 flex items-center justify-center text-amber-400">
-                  <UserCheck className="w-4 h-4" />
-                </div>
-                <div>
-                  <h3 className="text-sm font-bold text-amber-300 m-0">
-                    Operator Authorization Required ({pendingApprovals.length} In-Flight)
-                  </h3>
-                  <p className="text-xs text-zinc-400 m-0">
-                    Spend is atomically reserved in PENDING status. Payment rails will not execute until an operator authorizes.
-                  </p>
-                </div>
+              <div className="flex items-center gap-2.5">
+                <UserCheck className="w-4 h-4 text-amber-400" />
+                <span className="text-xs font-bold text-amber-300 font-mono">
+                  OPERATOR AUTHORIZATION REQUIRED ({pendingApprovals.length} IN-FLIGHT)
+                </span>
               </div>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
               {pendingApprovals.map((appr: ApprovalRecord) => (
                 <div
                   key={appr.approval_id}
-                  className="p-4 rounded-xl bg-black border border-amber-500/30 flex flex-col justify-between space-y-3"
+                  className="p-3.5 rounded-lg bg-[#030712] border border-amber-500/25 flex flex-col justify-between space-y-3"
                 >
                   <div className="space-y-1 text-xs font-mono">
-                    <div className="flex items-center justify-between">
-                      <span className="text-amber-400 font-bold px-2 py-0.5 rounded-full bg-amber-950/80 border border-amber-800 text-[10px]">
-                        REVIEW REQUIRED
-                      </span>
+                    <div className="flex items-center justify-between text-[11px]">
+                      <span className="text-amber-400 font-bold">APPROVAL_PENDING</span>
                       <span className="text-zinc-500">{appr.approval_id}</span>
                     </div>
-                    <div className="text-base font-bold text-white pt-1">
+                    <div className="text-sm font-bold text-white pt-0.5">
                       {appr.tool_name} — ₹{appr.amount?.toLocaleString() ?? 0} {appr.currency}
                     </div>
                     <div className="text-zinc-400 text-[11px]">
-                      Arguments: {JSON.stringify(appr.arguments)}
-                    </div>
-                    <div className="text-amber-300 text-[11px]">
-                      Trigger Reason: {appr.reasons.join(', ')}
+                      Args: {JSON.stringify(appr.arguments)}
                     </div>
                   </div>
 
@@ -602,15 +584,15 @@ export default function App() {
                     <button
                       onClick={() => handleApprove(appr.approval_id)}
                       disabled={reviewingId === appr.approval_id}
-                      className="flex-1 bg-white hover:bg-zinc-200 text-black font-semibold py-2 px-3 rounded-lg text-xs transition flex items-center justify-center gap-1.5"
+                      className="btn-primary flex-1 py-1.5 text-xs flex items-center justify-center gap-1.5"
                     >
                       <CheckCircle2 className="w-3.5 h-3.5" />
-                      Authorize & Dispatch
+                      Authorize & Execute
                     </button>
                     <button
                       onClick={() => handleReject(appr.approval_id)}
                       disabled={reviewingId === appr.approval_id}
-                      className="flex-1 bg-zinc-900 hover:bg-zinc-800 text-zinc-300 border border-zinc-800 font-medium py-2 px-3 rounded-lg text-xs transition flex items-center justify-center gap-1.5"
+                      className="flex-1 bg-zinc-900 hover:bg-zinc-800 text-zinc-300 border border-zinc-800 py-1.5 rounded-md text-xs font-medium transition flex items-center justify-center gap-1.5"
                     >
                       <XCircle className="w-3.5 h-3.5" />
                       Reject & Cancel
@@ -622,59 +604,47 @@ export default function App() {
           </section>
         )}
 
-        {/* Tab 1: Live Agent Playground */}
-        {activeTab === 'agent' && (
+        {/* Tab 1: Interception Deck */}
+        {activeTab === 'reactor' && (
           <section className="space-y-6">
-            <div className="glass-panel p-6 space-y-4">
-              <div className="flex items-center justify-between text-xs">
-                <label className="font-bold text-white uppercase tracking-wider flex items-center gap-2">
-                  <Bot className="w-4 h-4 text-blue-400" />
-                  Autonomous AI Agent Prompt Runner
-                </label>
-                <span className="font-mono text-zinc-400 text-[11px]">
-                  Authorized Intent: footwear · max ₹5,000 · review threshold &gt;₹3,000
+            {/* Prompt Dispatcher */}
+            <div className="console-card p-5 space-y-3">
+              <div className="flex items-center justify-between text-xs font-mono text-zinc-400">
+                <span className="flex items-center gap-1.5 text-white font-medium">
+                  <Bot className="w-3.5 h-3.5 text-indigo-400" />
+                  Agent Interceptor Command Deck
                 </span>
+                <span>Active Model: {systemHealth?.model || 'meta/llama-3.1-8b-instruct'}</span>
               </div>
 
-              <div className="flex items-center gap-3">
-                <div className="relative flex-1">
-                  <input
-                    type="text"
-                    value={agentPrompt}
-                    onChange={(e) => setAgentPrompt(e.target.value)}
-                    onKeyDown={(e) => e.key === 'Enter' && handleAgentRun()}
-                    placeholder="Ask the AI agent (e.g. 'Buy running shoes under ₹5,000')..."
-                    className="w-full glass-input px-4 py-3 text-sm font-mono placeholder:text-zinc-600 pr-10"
-                  />
-                  {agentPrompt && (
-                    <button
-                      onClick={() => setAgentPrompt('')}
-                      className="absolute right-3 top-1/2 -translate-y-1/2 text-zinc-500 hover:text-white p-1"
-                    >
-                      <X className="w-4 h-4" />
-                    </button>
-                  )}
-                </div>
-
+              <div className="flex items-center gap-2">
+                <input
+                  type="text"
+                  value={agentPrompt}
+                  onChange={(e) => setAgentPrompt(e.target.value)}
+                  onKeyDown={(e) => e.key === 'Enter' && handleAgentRun()}
+                  placeholder="Dispatch autonomous agent task..."
+                  className="flex-1 console-input px-3.5 py-2.5 text-xs font-mono placeholder:text-zinc-600"
+                />
                 <button
                   onClick={() => handleAgentRun()}
                   disabled={loading || !agentPrompt.trim()}
-                  className="btn-primary-action px-6 py-3 text-xs flex items-center gap-2 shrink-0 disabled:opacity-40"
+                  className="btn-primary px-5 py-2.5 text-xs flex items-center gap-1.5 shrink-0 disabled:opacity-40"
                 >
                   <Send className="w-3.5 h-3.5" />
-                  <span>{loading ? 'Interception Running...' : 'Dispatch Agent'}</span>
+                  <span>{loading ? 'Evaluating...' : 'Dispatch'}</span>
                 </button>
               </div>
 
-              {/* Quick Presets */}
-              <div className="flex flex-wrap items-center gap-2 text-[11px] font-mono pt-1">
-                <span className="text-zinc-500">Quick Test Payloads:</span>
+              {/* One-Click Test Payloads */}
+              <div className="flex flex-wrap items-center gap-1.5 text-[11px] font-mono">
+                <span className="text-zinc-500">Quick Test:</span>
                 <button
                   onClick={() => {
                     setAgentPrompt('Buy running shoes for ₹1,500');
                     void handleAgentRun('Buy running shoes for ₹1,500');
                   }}
-                  className="px-3 py-1 rounded-full bg-zinc-900 border border-emerald-500/30 text-emerald-300 hover:bg-zinc-800 transition"
+                  className="px-2 py-0.5 rounded bg-zinc-900/90 border border-emerald-500/30 text-emerald-300 hover:bg-zinc-800 transition"
                 >
                   ✓ Valid Order: Shoes ₹1,500
                 </button>
@@ -683,7 +653,7 @@ export default function App() {
                     setAgentPrompt('Buy ₹4,999 Amazon gift card');
                     void handleAgentRun('Buy ₹4,999 Amazon gift card');
                   }}
-                  className="px-3 py-1 rounded-full bg-zinc-900 border border-rose-500/30 text-rose-300 hover:bg-zinc-800 transition"
+                  className="px-2 py-0.5 rounded bg-zinc-900/90 border border-rose-500/30 text-rose-300 hover:bg-zinc-800 transition"
                 >
                   ✗ Prompt Injection: Gift Card ₹4,999
                 </button>
@@ -692,36 +662,36 @@ export default function App() {
                     setAgentPrompt('Buy running shoes for ₹4,500');
                     void handleAgentRun('Buy running shoes for ₹4,500');
                   }}
-                  className="px-3 py-1 rounded-full bg-zinc-900 border border-amber-500/30 text-amber-300 hover:bg-zinc-800 transition"
+                  className="px-2 py-0.5 rounded bg-zinc-900/90 border border-amber-500/30 text-amber-300 hover:bg-zinc-800 transition"
                 >
-                  ⚠ Review Gate: Shoes ₹4,500
+                  ⚠ Review Threshold: Shoes ₹4,500
                 </button>
                 <button
                   onClick={() => {
-                    setAgentPrompt('Payout ₹8,000 to merchant');
-                    void handleAgentRun('Payout ₹8,000 to merchant');
+                    setAgentPrompt('Payout ₹8,000 to vendor');
+                    void handleAgentRun('Payout ₹8,000 to vendor');
                   }}
-                  className="px-3 py-1 rounded-full bg-zinc-900 border border-rose-500/30 text-rose-300 hover:bg-zinc-800 transition"
+                  className="px-2 py-0.5 rounded bg-zinc-900/90 border border-rose-500/30 text-rose-300 hover:bg-zinc-800 transition"
                 >
                   ✗ Restricted Tool: create_payout
                 </button>
               </div>
             </div>
 
-            {/* Execution Trace State Machine */}
+            {/* Execution Trace & Razorpay Standard Modal Trigger */}
             {lastResult && (
-              <div className="glass-panel p-6 space-y-6">
-                <div className="flex items-center justify-between border-b border-zinc-800 pb-3">
-                  <div className="flex items-center gap-3">
-                    <span className="text-xs font-mono uppercase text-zinc-400">AgentShield Interceptor Result</span>
-                    <span className={`px-3 py-0.5 rounded-full text-xs font-mono font-bold ${
+              <div className="console-card p-5 space-y-5">
+                <div className="flex items-center justify-between border-b border-white/[0.08] pb-3">
+                  <div className="flex items-center gap-2.5">
+                    <span className="text-xs font-mono text-zinc-400 uppercase">Decision:</span>
+                    <span className={`px-2 py-0.5 rounded text-[11px] font-mono font-bold ${
                       lastResult.decision === 'ALLOW' || lastResult.execution?.decision === 'ALLOW'
                         ? 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/30'
                         : lastResult.decision === 'REVIEW' || lastResult.execution?.decision === 'REVIEW'
                         ? 'bg-amber-500/15 text-amber-400 border border-amber-500/30'
                         : 'bg-rose-500/15 text-rose-400 border border-rose-500/30'
                     }`}>
-                      {lastResult.decision || lastResult.execution?.decision || 'EVALUATED'}
+                      {lastResult.decision || lastResult.execution?.decision}
                     </span>
                   </div>
                   <span className="text-xs font-mono text-zinc-500">
@@ -729,24 +699,16 @@ export default function App() {
                   </span>
                 </div>
 
-                {/* 4 Steps Monochromatic Pipeline */}
+                {/* 4 Pipeline Phases */}
                 <div className="grid grid-cols-1 md:grid-cols-4 gap-3 text-xs font-mono">
-                  <div className="p-4 rounded-xl bg-black border border-white/[0.08] space-y-1.5">
-                    <div className="text-[10px] text-blue-400 font-bold uppercase tracking-wider">
-                      1. User Authorized Intent
-                    </div>
-                    <div className="text-white font-sans text-xs truncate">
-                      "{lastResult.user_prompt || agentPrompt}"
-                    </div>
-                    <div className="text-zinc-500 text-[11px]">
-                      Intent: {session?.intent?.category || 'footwear'}
-                    </div>
+                  <div className="p-3.5 rounded-lg bg-[#030712] border border-white/[0.06] space-y-1">
+                    <div className="text-[10px] text-zinc-500 uppercase">1. Intent Envelope</div>
+                    <div className="text-white truncate">"{lastResult.user_prompt || agentPrompt}"</div>
+                    <div className="text-zinc-500 text-[11px]">Category: {session?.intent?.category || 'footwear'}</div>
                   </div>
 
-                  <div className="p-4 rounded-xl bg-black border border-white/[0.08] space-y-1.5">
-                    <div className="text-[10px] text-indigo-400 font-bold uppercase tracking-wider">
-                      2. NIM Model Proposal
-                    </div>
+                  <div className="p-3.5 rounded-lg bg-[#030712] border border-white/[0.06] space-y-1">
+                    <div className="text-[10px] text-zinc-500 uppercase">2. Proposed Tool</div>
                     <div className="text-white font-bold truncate">
                       {lastResult.proposed_tool_name || lastResult.execution?.tool_name || 'create_order'}()
                     </div>
@@ -755,57 +717,51 @@ export default function App() {
                     </div>
                   </div>
 
-                  <div className="p-4 rounded-xl bg-black border border-white/[0.08] space-y-1.5">
-                    <div className="text-[10px] text-purple-400 font-bold uppercase tracking-wider">
-                      3. Shield Guardrail
-                    </div>
-                    <div className="text-white font-bold">
-                      Risk Level: {lastResult.execution?.risk_level || lastResult.risk_level || 'LOW'}
+                  <div className="p-3.5 rounded-lg bg-[#030712] border border-white/[0.06] space-y-1">
+                    <div className="text-[10px] text-zinc-500 uppercase">3. Shield Guardrail</div>
+                    <div className="text-white">
+                      Risk: {lastResult.execution?.risk_level || lastResult.risk_level || 'LOW'}
                     </div>
                     <div className="text-zinc-400 text-[11px] truncate">
                       {lastResult.execution?.reasons?.length > 0
                         ? lastResult.execution.reasons.join(', ')
-                        : 'Bounds & Policy Passed'}
+                        : 'Bounds Verified'}
                     </div>
                   </div>
 
-                  <div className="p-4 rounded-xl bg-black border border-white/[0.08] space-y-1.5">
-                    <div className="text-[10px] text-emerald-400 font-bold uppercase tracking-wider">
-                      4. Razorpay Sandbox Rails
-                    </div>
+                  <div className="p-3.5 rounded-lg bg-[#030712] border border-white/[0.06] space-y-1">
+                    <div className="text-[10px] text-zinc-500 uppercase">4. Razorpay Rails</div>
                     {createdOrder ? (
-                      <div className="text-emerald-400 font-bold truncate">
-                        {createdOrder.id}
-                      </div>
+                      <div className="text-emerald-400 font-bold truncate">{createdOrder.id}</div>
                     ) : lastResult.execution?.decision === 'REVIEW' || lastResult.decision === 'REVIEW' ? (
                       <div className="text-amber-400 font-bold">Held in PENDING</div>
                     ) : (
-                      <div className="text-rose-400 font-bold">Execution Blocked</div>
+                      <div className="text-rose-400 font-bold">Blocked</div>
                     )}
                     <div className="text-zinc-500 text-[11px]">
-                      {createdOrder ? 'Order Created' : 'Provider Guarded'}
+                      {createdOrder ? 'Order Ready' : 'Protected'}
                     </div>
                   </div>
                 </div>
 
                 {/* Razorpay Standard Checkout Launch Banner */}
                 {createdOrder && (
-                  <div className="p-6 rounded-2xl bg-gradient-to-r from-blue-950/40 via-blue-900/20 to-black border border-blue-500/40 flex flex-col sm:flex-row sm:items-center justify-between gap-4 shadow-2xl">
-                    <div className="space-y-1">
-                      <div className="flex items-center gap-2 text-sm font-bold text-blue-300">
-                        <CreditCard className="w-5 h-5 text-blue-400" />
-                        <span>Razorpay Test Sandbox Order Ready: {createdOrder.id}</span>
+                  <div className="p-4 rounded-xl bg-blue-950/20 border border-blue-500/30 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                    <div className="space-y-0.5">
+                      <div className="flex items-center gap-2 text-xs font-bold text-blue-300">
+                        <CreditCard className="w-4 h-4 text-blue-400" />
+                        <span>Razorpay Test Sandbox Order: {createdOrder.id}</span>
                       </div>
                       <p className="text-xs text-zinc-400 m-0">
-                        Amount: <strong className="text-white">₹{createdOrder.amount?.toLocaleString() ?? 1500}</strong>. Click below to launch Razorpay's authentic Checkout Modal with UPI, Cards, Netbanking and test credentials.
+                        Amount: <strong className="text-white">₹{createdOrder.amount?.toLocaleString() ?? 1500}</strong>. Launch Razorpay's authentic checkout modal with UPI, Cards, and Netbanking.
                       </p>
                     </div>
 
                     <button
                       onClick={() => launchRazorpayCheckout(createdOrder.id, createdOrder.amount)}
-                      className="bg-[#006fee] hover:bg-blue-500 text-white font-bold px-7 py-3 rounded-xl text-xs flex items-center justify-center gap-2 shadow-[0_0_25px_rgba(0,111,238,0.5)] transition shrink-0"
+                      className="btn-rzp px-5 py-2 text-xs flex items-center justify-center gap-1.5 shrink-0"
                     >
-                      <ExternalLink className="w-4 h-4" />
+                      <ExternalLink className="w-3.5 h-3.5" />
                       <span>Open Razorpay Checkout</span>
                     </button>
                   </div>
@@ -813,39 +769,39 @@ export default function App() {
 
                 {/* Payment Feedback */}
                 {paymentStatus && (
-                  <div className={`p-4 rounded-xl text-xs font-mono flex items-center gap-2 ${
+                  <div className={`p-3 rounded-lg text-xs font-mono flex items-center gap-2 ${
                     paymentStatus.includes('Successful') || paymentStatus.includes('Succeeded')
-                      ? 'bg-emerald-500/15 border border-emerald-500/40 text-emerald-300'
-                      : 'bg-rose-500/15 border border-rose-500/40 text-rose-300'
+                      ? 'bg-emerald-500/10 border border-emerald-500/30 text-emerald-300'
+                      : 'bg-rose-500/10 border border-rose-500/30 text-rose-300'
                   }`}>
                     <CheckCircle2 className="w-4 h-4" />
                     <span>{paymentStatus}</span>
                   </div>
                 )}
 
-                {/* Plain-English Decision Reason */}
-                <div className={`p-4 rounded-xl border text-xs font-mono flex items-start gap-3.5 ${
+                {/* Explanation */}
+                <div className={`p-3.5 rounded-lg border text-xs font-mono flex items-start gap-3 ${
                   lastResult.decision === 'ALLOW' || lastResult.execution?.decision === 'ALLOW'
                     ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-300'
                     : lastResult.decision === 'REVIEW' || lastResult.execution?.decision === 'REVIEW'
                     ? 'bg-amber-500/10 border-amber-500/30 text-amber-300'
                     : 'bg-rose-500/10 border-rose-500/30 text-rose-300'
                 }`}>
-                  <Info className="w-5 h-5 shrink-0 mt-0.5" />
-                  <div className="space-y-1 font-sans">
-                    <div className="font-bold text-sm font-mono">
+                  <Info className="w-4 h-4 shrink-0 mt-0.5" />
+                  <div className="space-y-0.5 font-sans">
+                    <div className="font-bold font-mono">
                       {lastResult.decision === 'ALLOW' || lastResult.execution?.decision === 'ALLOW'
-                        ? 'ALLOW: Transaction authorized and dispatched to Razorpay.'
+                        ? 'ALLOW: Transaction authorized and dispatched to payment provider.'
                         : lastResult.decision === 'REVIEW' || lastResult.execution?.decision === 'REVIEW'
-                        ? 'REVIEW: Transaction exceeds operator threshold. Spend reserved awaiting human sign-off.'
-                        : 'BLOCK: Operation prevented by AgentShield boundary.'}
+                        ? 'REVIEW: Threshold breach. Spend reserved awaiting operator approval.'
+                        : 'BLOCK: Unauthorized action prevented by AgentShield boundary.'}
                     </div>
-                    <p className="text-zinc-300 leading-relaxed m-0 text-xs">
+                    <p className="text-zinc-300 m-0 text-xs">
                       {lastResult.execution?.policy_violations?.length > 0
-                        ? `Policy Violation: ${lastResult.execution.policy_violations.map((v: any) => `${v.rule} (Limit: ${v.limit}, Actual: ${v.actual})`).join(', ')}`
+                        ? `Policy Violations: ${lastResult.execution.policy_violations.map((v: any) => `${v.rule} (Limit: ${v.limit}, Actual: ${v.actual})`).join(', ')}`
                         : lastResult.execution?.reasons?.length > 0
-                        ? `Interception Reason: ${lastResult.execution.reasons.join(', ')}`
-                        : 'Operation matches user authorized category, purpose, amount ceiling, and sliding-window velocity bounds.'}
+                        ? `Reasons: ${lastResult.execution.reasons.join(', ')}`
+                        : 'Action conforms with user authorized category, purpose, amount limit, and velocity bounds.'}
                     </p>
                   </div>
                 </div>
@@ -854,44 +810,38 @@ export default function App() {
           </section>
         )}
 
-        {/* Tab 2: Razorpay Rails & Direct Checkout Tester */}
+        {/* Tab 2: Razorpay Rails & Direct Checkout */}
         {activeTab === 'razorpay' && (
           <section className="space-y-6">
-            {/* Direct Razorpay Checkout Modal Launcher Card */}
-            <div className="rounded-3xl border border-blue-500/40 bg-gradient-to-b from-[#091124] to-[#000000] p-6 lg:p-8 space-y-6 shadow-2xl">
-              <div className="flex flex-wrap items-center justify-between gap-4 border-b border-blue-500/20 pb-5">
-                <div className="flex items-center gap-3.5">
-                  <div className="w-12 h-12 rounded-2xl bg-[#006fee] flex items-center justify-center font-bold text-xl text-white shadow-[0_0_25px_rgba(0,111,238,0.6)]">
+            {/* Direct Checkout Launcher */}
+            <div className="console-card p-5 space-y-4">
+              <div className="flex flex-wrap items-center justify-between gap-4 border-b border-white/[0.08] pb-4">
+                <div className="flex items-center gap-3">
+                  <div className="w-9 h-9 rounded-lg bg-[#006fee] flex items-center justify-center font-bold text-white">
                     ₹
                   </div>
                   <div>
-                    <div className="flex items-center gap-2">
-                      <h2 className="text-lg font-bold text-white m-0">Razorpay Standard Checkout Launcher</h2>
-                      <span className="text-[10px] font-mono px-2.5 py-0.5 rounded-full bg-blue-500/20 text-blue-300 border border-blue-500/30">
-                        OFFICIAL RAZORPAY MODAL
-                      </span>
-                    </div>
+                    <h3 className="text-sm font-bold text-white m-0">Razorpay Standard Checkout Launcher</h3>
                     <p className="text-xs text-zinc-400 m-0">
-                      Directly opens Razorpay's official checkout popup with real test credentials (UPI, Cards, Netbanking)
+                      Opens Razorpay's official checkout popup with live test credentials (UPI: success@razorpay, Card: 4111 1111 1111 1111)
                     </p>
                   </div>
                 </div>
 
                 <button
                   onClick={() => launchRazorpayCheckout(undefined, parseInt(rzpAmount || '1500', 10))}
-                  className="bg-[#006fee] hover:bg-blue-500 text-white font-bold px-7 py-3 rounded-2xl text-xs flex items-center gap-2 shadow-[0_0_25px_rgba(0,111,238,0.6)] transition"
+                  className="btn-rzp px-5 py-2.5 text-xs flex items-center gap-1.5"
                 >
-                  <CreditCard className="w-4 h-4" />
+                  <CreditCard className="w-3.5 h-3.5" />
                   <span>Test Razorpay Checkout (₹{parseInt(rzpAmount || '1500', 10).toLocaleString()})</span>
                 </button>
               </div>
 
-              {/* Payment Verification Status */}
               {paymentStatus && (
-                <div className={`p-4 rounded-xl text-xs font-mono flex items-center gap-2 ${
+                <div className={`p-3 rounded-lg text-xs font-mono flex items-center gap-2 ${
                   paymentStatus.includes('Successful') || paymentStatus.includes('Succeeded')
-                    ? 'bg-emerald-500/15 border border-emerald-500/40 text-emerald-300'
-                    : 'bg-rose-500/15 border border-rose-500/40 text-rose-300'
+                    ? 'bg-emerald-500/10 border border-emerald-500/30 text-emerald-300'
+                    : 'bg-rose-500/10 border border-rose-500/30 text-rose-300'
                 }`}>
                   <CheckCircle2 className="w-4 h-4" />
                   <span>{paymentStatus}</span>
@@ -899,133 +849,107 @@ export default function App() {
               )}
             </div>
 
-            {/* Direct Order Form & Lookup Grid */}
+            {/* Direct Order Form & Lookup */}
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-              {/* Direct Order Dispatch Form */}
-              <div className="lg:col-span-2 glass-panel p-6 space-y-5">
-                <div className="flex items-center justify-between border-b border-zinc-800 pb-3">
-                  <div>
-                    <h3 className="text-sm font-bold text-white">Direct Razorpay Sandbox Order Dispatch</h3>
-                    <p className="text-xs text-zinc-400">Create test orders directly on Razorpay through AgentShield authorization</p>
-                  </div>
-                  <span className="text-[11px] font-mono px-3 py-1 rounded-full bg-zinc-900 border border-zinc-800 text-blue-300">
-                    INR / Paise Subunits
-                  </span>
+              <div className="lg:col-span-2 console-card p-5 space-y-4">
+                <div className="flex items-center justify-between border-b border-white/[0.08] pb-3">
+                  <span className="text-xs font-bold text-white font-mono">Create Razorpay Sandbox Order</span>
+                  <span className="text-[10px] font-mono text-zinc-500">Auto Paise Conversion</span>
                 </div>
 
-                <form onSubmit={handleDirectRazorpayOrder} className="space-y-4">
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <form onSubmit={handleDirectRazorpayOrder} className="space-y-3 font-mono text-xs">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     <div>
-                      <label className="block text-xs text-zinc-400 mb-1.5 font-mono">Amount (INR ₹)</label>
+                      <label className="text-zinc-400 block mb-1">Amount (INR ₹)</label>
                       <input
                         type="number"
                         value={rzpAmount}
                         onChange={(e) => setRzpAmount(e.target.value)}
                         required
-                        className="w-full glass-input px-3.5 py-2.5 text-xs font-mono text-white"
+                        className="w-full console-input px-3 py-2 text-white"
                         placeholder="1500"
                       />
-                      <span className="text-[10px] text-zinc-500 mt-1 block font-mono">
-                        Converts to {(parseInt(rzpAmount || '0', 10) * 100).toLocaleString()} paise on Razorpay
-                      </span>
                     </div>
-
                     <div>
-                      <label className="block text-xs text-zinc-400 mb-1.5 font-mono">Category</label>
+                      <label className="text-zinc-400 block mb-1">Category</label>
                       <input
                         type="text"
                         value={rzpCategory}
                         onChange={(e) => setRzpCategory(e.target.value)}
                         required
-                        className="w-full glass-input px-3.5 py-2.5 text-xs font-mono text-white"
+                        className="w-full console-input px-3 py-2 text-white"
                         placeholder="footwear"
                       />
-                      <span className="text-[10px] text-zinc-500 mt-1 block font-mono">
-                        Authorized: footwear
-                      </span>
                     </div>
-
                     <div>
-                      <label className="block text-xs text-zinc-400 mb-1.5 font-mono">Purpose</label>
+                      <label className="text-zinc-400 block mb-1">Purpose</label>
                       <input
                         type="text"
                         value={rzpPurpose}
                         onChange={(e) => setRzpPurpose(e.target.value)}
                         required
-                        className="w-full glass-input px-3.5 py-2.5 text-xs font-mono text-white"
+                        className="w-full console-input px-3 py-2 text-white"
                         placeholder="running shoes"
                       />
                     </div>
-
                     <div>
-                      <label className="block text-xs text-zinc-400 mb-1.5 font-mono">Receipt Identifier</label>
+                      <label className="text-zinc-400 block mb-1">Receipt ID</label>
                       <input
                         type="text"
                         value={rzpReceipt}
                         onChange={(e) => setRzpReceipt(e.target.value)}
-                        className="w-full glass-input px-3.5 py-2.5 text-xs font-mono text-white"
-                        placeholder="rcpt_custom_1001"
+                        className="w-full console-input px-3 py-2 text-white"
+                        placeholder="rcpt_1001"
                       />
                     </div>
                   </div>
 
-                  <div className="pt-2 flex items-center justify-between">
-                    <div className="text-xs text-zinc-500 font-mono flex items-center gap-1.5">
-                      <Lock className="w-3.5 h-3.5" />
-                      Evaluates policy & intent before dispatch
-                    </div>
+                  <div className="pt-2 flex justify-end">
                     <button
                       type="submit"
                       disabled={loading}
-                      className="btn-primary-action px-6 py-2.5 text-xs disabled:opacity-50"
+                      className="btn-primary px-5 py-2 text-xs disabled:opacity-50"
                     >
-                      Create Razorpay Order
+                      Authorize & Create Order
                     </button>
                   </div>
                 </form>
               </div>
 
-              {/* Order ID Verifier */}
-              <div className="glass-panel p-6 space-y-4 flex flex-col justify-between">
+              {/* Order Verifier */}
+              <div className="console-card p-5 space-y-4 flex flex-col justify-between">
                 <div>
-                  <h3 className="text-sm font-bold text-white mb-1">Verify Razorpay Order</h3>
-                  <p className="text-xs text-zinc-400 mb-4">Query Razorpay Sandbox API to inspect settled order state.</p>
-
-                  <form onSubmit={handleLookupOrder} className="space-y-3">
+                  <span className="text-xs font-bold text-white font-mono block mb-2">Order State Inspector</span>
+                  <form onSubmit={handleLookupOrder} className="space-y-2">
                     <input
                       type="text"
                       value={rzpLookupId}
                       onChange={(e) => setRzpLookupId(e.target.value)}
                       placeholder="order_RzpTest123..."
-                      className="w-full glass-input px-3.5 py-2.5 text-xs font-mono text-white"
+                      className="w-full console-input px-3 py-2 text-xs font-mono text-white"
                     />
                     <button
                       type="submit"
                       disabled={lookupLoading || !rzpLookupId.trim()}
-                      className="w-full bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 text-white py-2.5 rounded-xl text-xs font-semibold transition"
+                      className="w-full bg-zinc-900 hover:bg-zinc-800 text-white py-2 rounded-md text-xs font-mono transition"
                     >
-                      Fetch Order Status
+                      Fetch from Razorpay
                     </button>
                   </form>
 
                   {lookupResult && (
-                    <div className="mt-3 p-3.5 rounded-xl bg-black border border-zinc-800 text-[11px] font-mono space-y-1">
-                      <div className="text-zinc-400">Order Payload:</div>
-                      <pre className="text-blue-300 overflow-x-auto m-0">
+                    <div className="mt-3 p-3 rounded bg-black border border-white/[0.08] text-[11px] font-mono">
+                      <pre className="text-indigo-300 overflow-x-auto m-0">
                         {JSON.stringify(lookupResult.provider_result || lookupResult, null, 2)}
                       </pre>
                     </div>
                   )}
                 </div>
 
-                <div className="pt-3 border-t border-zinc-800 text-[11px] font-mono text-zinc-400 space-y-1.5">
+                <div className="pt-3 border-t border-white/[0.08] text-[11px] font-mono text-zinc-500 space-y-1">
                   <div className="flex justify-between">
                     <span>Provider Mode:</span>
-                    <span className="text-white font-medium">{isRazorpayActive ? 'Razorpay Sandbox' : 'Sandbox Active'}</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span>API Endpoint:</span>
-                    <span className="text-zinc-300">api.razorpay.com/v1</span>
+                    <span className="text-white">{isRazorpayActive ? 'Razorpay Sandbox' : 'Mock Fallback'}</span>
                   </div>
                 </div>
               </div>
@@ -1033,68 +957,165 @@ export default function App() {
           </section>
         )}
 
-        {/* Tab 3: Integration SDK */}
-        {activeTab === 'integration' && (
-          <section className="space-y-6">
-            <div className="glass-panel p-6 space-y-4">
-              <div>
-                <h3 className="text-base font-bold text-white">Pluggable Service Architecture</h3>
-                <p className="text-xs text-zinc-400">
-                  AgentShield is a standalone authorization middleware. Any external AI agent (LangChain, CrewAI, AutoGen, or custom agents) calls AgentShield before executing payment operations.
-                </p>
-              </div>
+        {/* Tab 3: Security Lab */}
+        {activeTab === 'scenarios' && (
+          <section className="space-y-4">
+            <div>
+              <h3 className="text-sm font-bold text-white font-mono">Security Stress & Attack Matrix</h3>
+              <p className="text-xs text-zinc-400 font-sans">
+                Demonstrates how AgentShield defeats prompt injection and budgetary attacks.
+              </p>
+            </div>
 
-              {/* Language Switcher */}
-              <div className="flex items-center gap-2 border-b border-zinc-800 pb-3 text-xs font-mono">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 font-mono">
+              <div className="console-card p-4 flex flex-col justify-between space-y-3 border-rose-500/30">
+                <div>
+                  <div className="text-[10px] text-rose-400 font-bold uppercase mb-1">Prompt Injection</div>
+                  <h4 className="text-xs font-semibold text-white mb-1">1. Category Mismatch</h4>
+                  <p className="text-[11px] text-zinc-400 leading-relaxed font-sans">
+                    Agent attempts to buy a ₹4,999 Gift Card instead of running shoes.
+                  </p>
+                </div>
                 <button
-                  onClick={() => setCodeLang('python')}
-                  className={`px-3 py-1 rounded-md transition ${codeLang === 'python' ? 'bg-zinc-800 text-white font-bold' : 'text-zinc-400'}`}
+                  onClick={() =>
+                    void handleScenarioRun('create_order', {
+                      amount: 4999,
+                      category: 'gift_card',
+                      purpose: 'digital gift card',
+                    })
+                  }
+                  disabled={loading}
+                  className="w-full bg-rose-600/80 hover:bg-rose-500 text-white py-1.5 rounded text-xs transition"
                 >
-                  Python (requests)
-                </button>
-                <button
-                  onClick={() => setCodeLang('curl')}
-                  className={`px-3 py-1 rounded-md transition ${codeLang === 'curl' ? 'bg-zinc-800 text-white font-bold' : 'text-zinc-400'}`}
-                >
-                  cURL
-                </button>
-                <button
-                  onClick={() => setCodeLang('node')}
-                  className={`px-3 py-1 rounded-md transition ${codeLang === 'node' ? 'bg-zinc-800 text-white font-bold' : 'text-zinc-400'}`}
-                >
-                  Node.js / TypeScript
-                </button>
-                <button
-                  onClick={() => setCodeLang('langchain')}
-                  className={`px-3 py-1 rounded-md transition ${codeLang === 'langchain' ? 'bg-zinc-800 text-white font-bold' : 'text-zinc-400'}`}
-                >
-                  LangChain Tool Wrapper
+                  Run Attack
                 </button>
               </div>
 
-              {/* Code Snippet */}
-              <div className="relative rounded-xl bg-black border border-zinc-800 p-4 font-mono text-xs overflow-x-auto text-zinc-300">
+              <div className="console-card p-4 flex flex-col justify-between space-y-3 border-amber-500/30">
+                <div>
+                  <div className="text-[10px] text-amber-400 font-bold uppercase mb-1">Human Gate</div>
+                  <h4 className="text-xs font-semibold text-white mb-1">2. Threshold Review</h4>
+                  <p className="text-[11px] text-zinc-400 leading-relaxed font-sans">
+                    ₹3,500 order exceeds ₹3,000 threshold. Holds in PENDING state.
+                  </p>
+                </div>
                 <button
-                  onClick={() => {
-                    const snippet = codeLang === 'python'
-                      ? `import requests\n\n# External Agent submits tool request to AgentShield\nresponse = requests.post(\n    "http://localhost:8000/api/v1/agent/execute",\n    json={\n        "session_id": "shopper_01",\n        "tool_name": "create_order",\n        "arguments": {\n            "amount": 2999,\n            "currency": "INR",\n            "category": "footwear",\n            "purpose": "running shoes"\n        },\n        "agent_id": "my_autonomous_agent"\n    }\n)\nresult = response.json()\nif result["decision"] == "ALLOW":\n    print("Payment Authorized on Razorpay:", result["provider_result"]["order"]["id"])\nelse:\n    print("Blocked by AgentShield:", result["reasons"])`
-                      : codeLang === 'curl'
-                      ? `curl -X POST http://localhost:8000/api/v1/agent/execute \\\n  -H "Content-Type: application/json" \\\n  -d '{\n    "session_id": "shopper_01",\n    "tool_name": "create_order",\n    "arguments": {\n      "amount": 2999,\n      "currency": "INR",\n      "category": "footwear",\n      "purpose": "running shoes"\n    }\n  }'`
-                      : codeLang === 'node'
-                      ? `const response = await fetch("http://localhost:8000/api/v1/agent/execute", {\n  method: "POST",\n  headers: { "Content-Type": "application/json" },\n  body: JSON.stringify({\n    session_id: "shopper_01",\n    tool_name: "create_order",\n    arguments: { amount: 2999, currency: "INR", category: "footwear", purpose: "running shoes" }\n  })\n});\nconst result = await response.json();\nconsole.log(result.decision);`
-                      : `from langchain.tools import tool\nimport requests\n\n@tool\ndef create_order(amount: int, category: str, purpose: str):\n    """Create order securely through AgentShield financial firewall."""\n    res = requests.post(\n        "http://localhost:8000/api/v1/agent/execute",\n        json={"session_id": "agent_session", "tool_name": "create_order", "arguments": {"amount": amount, "category": category, "purpose": purpose}}\n    )\n    return res.json()`;
-                    copyToClipboard(snippet);
-                  }}
-                  className="absolute right-3 top-3 p-1.5 rounded bg-zinc-900 hover:bg-zinc-800 text-zinc-400 hover:text-white text-xs flex items-center gap-1"
+                  onClick={() =>
+                    void handleScenarioRun('create_order', {
+                      amount: 3500,
+                      category: 'footwear',
+                      purpose: 'running shoes',
+                    })
+                  }
+                  disabled={loading}
+                  className="w-full bg-amber-600/80 hover:bg-amber-500 text-white py-1.5 rounded text-xs transition"
                 >
-                  <Copy className="w-3.5 h-3.5" />
-                  <span>{copiedText ? 'Copied' : 'Copy Code'}</span>
+                  Run Scenario
                 </button>
+              </div>
 
-                <pre className="m-0 leading-relaxed text-blue-300">
-                  {codeLang === 'python' && `import requests
+              <div className="console-card p-4 flex flex-col justify-between space-y-3 border-rose-500/30">
+                <div>
+                  <div className="text-[10px] text-rose-400 font-bold uppercase mb-1">Budget Overrun</div>
+                  <h4 className="text-xs font-semibold text-white mb-1">3. Aggregate Cap</h4>
+                  <p className="text-[11px] text-zinc-400 leading-relaxed font-sans">
+                    Attempt ₹8,000 order. Multiple purchases breach ₹10k session cap.
+                  </p>
+                </div>
+                <button
+                  onClick={() =>
+                    void handleScenarioRun('create_order', {
+                      amount: 8000,
+                      category: 'footwear',
+                      purpose: 'running shoes',
+                    })
+                  }
+                  disabled={loading}
+                  className="w-full bg-rose-600/80 hover:bg-rose-500 text-white py-1.5 rounded text-xs transition"
+                >
+                  Run Attack
+                </button>
+              </div>
 
-# External Agent submits tool request to AgentShield
+              <div className="console-card p-4 flex flex-col justify-between space-y-3 border-indigo-500/30">
+                <div>
+                  <div className="text-[10px] text-indigo-400 font-bold uppercase mb-1">Velocity Burst</div>
+                  <h4 className="text-xs font-semibold text-white mb-1">4. Sliding Window</h4>
+                  <p className="text-[11px] text-zinc-400 leading-relaxed font-sans">
+                    5 consecutive orders fired rapidly. Violates sliding window rate limit.
+                  </p>
+                </div>
+                <button
+                  onClick={() => void handleVelocityBurst()}
+                  disabled={loading}
+                  className="w-full bg-indigo-600/80 hover:bg-indigo-500 text-white py-1.5 rounded text-xs transition"
+                >
+                  Run Burst
+                </button>
+              </div>
+            </div>
+          </section>
+        )}
+
+        {/* Tab 4: Integration SDK */}
+        {activeTab === 'sdk' && (
+          <section className="console-card p-5 space-y-4">
+            <div>
+              <h3 className="text-sm font-bold text-white font-mono">Pluggable Service Integration SDK</h3>
+              <p className="text-xs text-zinc-400 font-sans">
+                Any external autonomous AI agent routes tool execution through AgentShield via standard HTTP calls.
+              </p>
+            </div>
+
+            <div className="flex items-center gap-2 border-b border-white/[0.08] pb-2 text-xs font-mono">
+              <button
+                onClick={() => setCodeLang('python')}
+                className={`px-2.5 py-1 rounded transition ${codeLang === 'python' ? 'bg-zinc-800 text-white font-bold' : 'text-zinc-400'}`}
+              >
+                Python (requests)
+              </button>
+              <button
+                onClick={() => setCodeLang('curl')}
+                className={`px-2.5 py-1 rounded transition ${codeLang === 'curl' ? 'bg-zinc-800 text-white font-bold' : 'text-zinc-400'}`}
+              >
+                cURL
+              </button>
+              <button
+                onClick={() => setCodeLang('node')}
+                className={`px-2.5 py-1 rounded transition ${codeLang === 'node' ? 'bg-zinc-800 text-white font-bold' : 'text-zinc-400'}`}
+              >
+                TypeScript / Node.js
+              </button>
+              <button
+                onClick={() => setCodeLang('langchain')}
+                className={`px-2.5 py-1 rounded transition ${codeLang === 'langchain' ? 'bg-zinc-800 text-white font-bold' : 'text-zinc-400'}`}
+              >
+                LangChain Tool
+              </button>
+            </div>
+
+            <div className="relative rounded-lg bg-black border border-white/[0.08] p-4 font-mono text-xs overflow-x-auto">
+              <button
+                onClick={() => {
+                  const snippet = codeLang === 'python'
+                    ? `import requests\n\n# External Agent submits tool request to AgentShield\nresponse = requests.post(\n    "http://localhost:8000/api/v1/agent/execute",\n    json={\n        "session_id": "shopper_01",\n        "tool_name": "create_order",\n        "arguments": {\n            "amount": 2999,\n            "currency": "INR",\n            "category": "footwear",\n            "purpose": "running shoes"\n        },\n        "agent_id": "my_autonomous_agent"\n    }\n)\nresult = response.json()\nif result["decision"] == "ALLOW":\n    print("Payment Authorized on Razorpay:", result["provider_result"]["order"]["id"])\nelse:\n    print("Blocked by AgentShield:", result["reasons"])`
+                    : codeLang === 'curl'
+                    ? `curl -X POST http://localhost:8000/api/v1/agent/execute \\\n  -H "Content-Type: application/json" \\\n  -d '{\n    "session_id": "shopper_01",\n    "tool_name": "create_order",\n    "arguments": {\n      "amount": 2999,\n      "currency": "INR",\n      "category": "footwear",\n      "purpose": "running shoes"\n    }\n  }'`
+                    : codeLang === 'node'
+                    ? `const response = await fetch("http://localhost:8000/api/v1/agent/execute", {\n  method: "POST",\n  headers: { "Content-Type": "application/json" },\n  body: JSON.stringify({\n    session_id: "shopper_01",\n    tool_name: "create_order",\n    arguments: { amount: 2999, currency: "INR", category: "footwear", purpose: "running shoes" }\n  })\n});\nconst result = await response.json();\nconsole.log(result.decision);`
+                    : `from langchain.tools import tool\nimport requests\n\n@tool\ndef create_order(amount: int, category: str, purpose: str):\n    """Create order securely through AgentShield financial firewall."""\n    res = requests.post(\n        "http://localhost:8000/api/v1/agent/execute",\n        json={"session_id": "agent_session", "tool_name": "create_order", "arguments": {"amount": amount, "category": category, "purpose": purpose}}\n    )\n    return res.json()`;
+                  copyToClipboard(snippet);
+                }}
+                className="absolute right-3 top-3 px-2 py-1 rounded bg-zinc-900 hover:bg-zinc-800 text-zinc-400 hover:text-white text-xs flex items-center gap-1"
+              >
+                <Copy className="w-3 h-3" />
+                <span>{copiedText ? 'Copied' : 'Copy'}</span>
+              </button>
+
+              <pre className="m-0 leading-relaxed text-indigo-300">
+                {codeLang === 'python' && `import requests
+
+# Submit tool request to AgentShield Kernel
 response = requests.post(
     "http://localhost:8000/api/v1/agent/execute",
     json={
@@ -1106,17 +1127,17 @@ response = requests.post(
             "category": "footwear",
             "purpose": "running shoes"
         },
-        "agent_id": "my_autonomous_agent"
+        "agent_id": "procurement_agent"
     }
 )
 
 result = response.json()
 if result["decision"] == "ALLOW":
-    print("Payment Authorized on Razorpay:", result["provider_result"]["order"]["id"])
+    print("Authorized on Razorpay:", result["provider_result"]["order"]["id"])
 else:
     print("Blocked by AgentShield:", result["reasons"])`}
 
-                  {codeLang === 'curl' && `curl -X POST http://localhost:8000/api/v1/agent/execute \\
+                {codeLang === 'curl' && `curl -X POST http://localhost:8000/api/v1/agent/execute \\
   -H "Content-Type: application/json" \\
   -d '{
     "session_id": "shopper_01",
@@ -1129,25 +1150,18 @@ else:
     }
   }'`}
 
-                  {codeLang === 'node' && `const response = await fetch("http://localhost:8000/api/v1/agent/execute", {
+                {codeLang === 'node' && `const res = await fetch("http://localhost:8000/api/v1/agent/execute", {
   method: "POST",
   headers: { "Content-Type": "application/json" },
   body: JSON.stringify({
     session_id: "shopper_01",
     tool_name: "create_order",
-    arguments: {
-      amount: 2999,
-      currency: "INR",
-      category: "footwear",
-      purpose: "running shoes"
-    }
+    arguments: { amount: 2999, currency: "INR", category: "footwear", purpose: "running shoes" }
   })
 });
+const data = await res.json();`}
 
-const result = await response.json();
-console.log("Decision:", result.decision);`}
-
-                  {codeLang === 'langchain' && `from langchain.tools import tool
+                {codeLang === 'langchain' && `from langchain.tools import tool
 import requests
 
 @tool
@@ -1155,162 +1169,33 @@ def create_order(amount: int, category: str, purpose: str):
     """Create order securely through AgentShield financial firewall."""
     res = requests.post(
         "http://localhost:8000/api/v1/agent/execute",
-        json={
-            "session_id": "agent_session",
-            "tool_name": "create_order",
-            "arguments": {
-                "amount": amount,
-                "category": category,
-                "purpose": purpose
-            }
-        }
+        json={"session_id": "agent_session", "tool_name": "create_order", "arguments": {"amount": amount, "category": category, "purpose": purpose}}
     )
     return res.json()`}
-                </pre>
-              </div>
-            </div>
-          </section>
-        )}
-
-        {/* Tab 4: Security Scenarios */}
-        {activeTab === 'scenarios' && (
-          <section className="space-y-6">
-            <div>
-              <h3 className="text-base font-bold text-white">Adversarial Attack & Stress Lab</h3>
-              <p className="text-xs text-zinc-400">
-                Demonstrates how AgentShield halts attacks that pass ordinary spending limits.
-              </p>
-            </div>
-
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 font-mono">
-              <div className="glass-panel p-5 flex flex-col justify-between space-y-4 border border-rose-500/30">
-                <div>
-                  <div className="flex items-center justify-between text-xs mb-2">
-                    <span className="text-rose-400 font-bold px-2 py-0.5 rounded-full bg-rose-950/80 border border-rose-800 text-[10px]">
-                      CATEGORY MISMATCH
-                    </span>
-                    <ShieldAlert className="w-4 h-4 text-rose-400" />
-                  </div>
-                  <h4 className="text-sm font-semibold text-white font-sans mb-1">1. Prompt Injection</h4>
-                  <p className="text-xs text-zinc-400 font-sans leading-relaxed">
-                    Agent attempts to buy a ₹4,999 Gift Card instead of authorized running shoes.
-                  </p>
-                </div>
-                <button
-                  onClick={() =>
-                    void handleScenarioRun('create_order', {
-                      amount: 4999,
-                      category: 'gift_card',
-                      purpose: 'digital gift card',
-                    })
-                  }
-                  disabled={loading}
-                  className="w-full bg-rose-600/80 hover:bg-rose-500 text-white font-medium py-2 rounded-xl text-xs transition"
-                >
-                  Run Scenario
-                </button>
-              </div>
-
-              <div className="glass-panel p-5 flex flex-col justify-between space-y-4 border border-amber-500/30">
-                <div>
-                  <div className="flex items-center justify-between text-xs mb-2">
-                    <span className="text-amber-400 font-bold px-2 py-0.5 rounded-full bg-amber-950/80 border border-amber-800 text-[10px]">
-                      REVIEW REQUIRED
-                    </span>
-                    <UserCheck className="w-4 h-4 text-amber-400" />
-                  </div>
-                  <h4 className="text-sm font-semibold text-white font-sans mb-1">2. High-Value Order</h4>
-                  <p className="text-xs text-zinc-400 font-sans leading-relaxed">
-                    ₹3,500 order exceeds ₹3,000 threshold. Holds in PENDING without calling Razorpay.
-                  </p>
-                </div>
-                <button
-                  onClick={() =>
-                    void handleScenarioRun('create_order', {
-                      amount: 3500,
-                      category: 'footwear',
-                      purpose: 'running shoes',
-                    })
-                  }
-                  disabled={loading}
-                  className="w-full bg-amber-600/80 hover:bg-amber-500 text-white font-medium py-2 rounded-xl text-xs transition"
-                >
-                  Run Scenario
-                </button>
-              </div>
-
-              <div className="glass-panel p-5 flex flex-col justify-between space-y-4 border border-rose-500/30">
-                <div>
-                  <div className="flex items-center justify-between text-xs mb-2">
-                    <span className="text-rose-400 font-bold px-2 py-0.5 rounded-full bg-rose-950/80 border border-rose-800 text-[10px]">
-                      BUDGET OVERRUN
-                    </span>
-                    <Activity className="w-4 h-4 text-rose-400" />
-                  </div>
-                  <h4 className="text-sm font-semibold text-white font-sans mb-1">3. Aggregate Overrun</h4>
-                  <p className="text-xs text-zinc-400 font-sans leading-relaxed">
-                    Attempt ₹8,000 order. Multiple allowed purchases breach ₹10k session cap.
-                  </p>
-                </div>
-                <button
-                  onClick={() =>
-                    void handleScenarioRun('create_order', {
-                      amount: 8000,
-                      category: 'footwear',
-                      purpose: 'running shoes',
-                    })
-                  }
-                  disabled={loading}
-                  className="w-full bg-rose-600/80 hover:bg-rose-500 text-white font-medium py-2 rounded-xl text-xs transition"
-                >
-                  Run Scenario
-                </button>
-              </div>
-
-              <div className="glass-panel p-5 flex flex-col justify-between space-y-4 border border-purple-500/30">
-                <div>
-                  <div className="flex items-center justify-between text-xs mb-2">
-                    <span className="text-purple-400 font-bold px-2 py-0.5 rounded-full bg-purple-950/80 border border-purple-800 text-[10px]">
-                      BURST LIMIT
-                    </span>
-                    <Clock className="w-4 h-4 text-purple-400" />
-                  </div>
-                  <h4 className="text-sm font-semibold text-white font-sans mb-1">4. Velocity Burst</h4>
-                  <p className="text-xs text-zinc-400 font-sans leading-relaxed">
-                    Fire 5 consecutive orders rapidly. Violates sliding-window limit (4 req/60s).
-                  </p>
-                </div>
-                <button
-                  onClick={() => void handleVelocityBurst()}
-                  disabled={loading}
-                  className="w-full bg-purple-600/80 hover:bg-purple-500 text-white font-medium py-2 rounded-xl text-xs transition"
-                >
-                  Run Scenario
-                </button>
-              </div>
+              </pre>
             </div>
           </section>
         )}
 
         {/* Tab 5: Audit Ledger */}
         {activeTab === 'audit' && (
-          <section className="space-y-6">
+          <section className="space-y-4">
             <div className="flex items-center justify-between">
               <div>
-                <h3 className="text-base font-bold text-white">Security Audit Log</h3>
-                <p className="text-xs text-zinc-400">Tamper-evident record of all agent execution requests and policy decisions.</p>
+                <h3 className="text-sm font-bold text-white font-mono">Immutable Audit Ledger</h3>
+                <p className="text-xs text-zinc-400 font-sans">Tamper-evident record of all evaluations, authorizations and blocks.</p>
               </div>
               <div className="flex items-center gap-2">
                 <button
                   onClick={handleResetSpend}
-                  className="px-3.5 py-1.5 rounded-xl bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 text-zinc-300 text-xs font-mono transition flex items-center gap-1.5"
+                  className="px-3 py-1 rounded bg-zinc-900 hover:bg-zinc-800 border border-white/[0.08] text-zinc-300 text-xs font-mono transition flex items-center gap-1.5"
                 >
                   <RotateCcw className="w-3.5 h-3.5" />
                   Reset Spend
                 </button>
                 <button
                   onClick={handleReconcile}
-                  className="px-3.5 py-1.5 rounded-xl bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 text-zinc-300 text-xs font-mono transition flex items-center gap-1.5"
+                  className="px-3 py-1 rounded bg-zinc-900 hover:bg-zinc-800 border border-white/[0.08] text-zinc-300 text-xs font-mono transition flex items-center gap-1.5"
                 >
                   <RefreshCw className="w-3.5 h-3.5" />
                   Reconcile
@@ -1318,20 +1203,20 @@ def create_order(amount: int, category: str, purpose: str):
               </div>
             </div>
 
-            <div className="rounded-2xl overflow-hidden border border-white/[0.08] bg-black">
+            <div className="console-card overflow-hidden">
               <table className="w-full text-left text-xs font-mono">
-                <thead className="bg-[#090d1a] text-zinc-400 border-b border-zinc-800 text-[11px]">
+                <thead className="bg-[#0b0f19] text-zinc-400 border-b border-white/[0.08] text-[11px]">
                   <tr>
-                    <th className="py-3.5 px-4">Time</th>
-                    <th className="py-3.5 px-4">Decision</th>
-                    <th className="py-3.5 px-4">Risk</th>
-                    <th className="py-3.5 px-4">Tool</th>
-                    <th className="py-3.5 px-4">Reasons</th>
-                    <th className="py-3.5 px-4">Transaction</th>
-                    <th className="py-3.5 px-4 text-right">Details</th>
+                    <th className="py-3 px-4">Timestamp</th>
+                    <th className="py-3 px-4">Decision</th>
+                    <th className="py-3 px-4">Risk Level</th>
+                    <th className="py-3 px-4">Tool</th>
+                    <th className="py-3 px-4">Reasons</th>
+                    <th className="py-3 px-4">Transaction</th>
+                    <th className="py-3 px-4 text-right">Details</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-zinc-800/50">
+                <tbody className="divide-y divide-white/[0.05]">
                   {auditEvents.length === 0 ? (
                     <tr>
                       <td colSpan={7} className="py-8 text-center text-zinc-500 font-sans">
@@ -1343,14 +1228,14 @@ def create_order(amount: int, category: str, purpose: str):
                       <tr
                         key={event.event_id}
                         onClick={() => setSelectedEvent(event)}
-                        className="hover:bg-zinc-900/40 transition cursor-pointer"
+                        className="hover:bg-zinc-900/50 transition cursor-pointer"
                       >
-                        <td className="py-3.5 px-4 text-zinc-400 whitespace-nowrap">
+                        <td className="py-3 px-4 text-zinc-400 whitespace-nowrap">
                           {new Date(event.timestamp).toLocaleTimeString()}
                         </td>
-                        <td className="py-3.5 px-4 whitespace-nowrap">
+                        <td className="py-3 px-4 whitespace-nowrap">
                           <span
-                            className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold ${
+                            className={`px-2 py-0.5 rounded text-[10px] font-bold ${
                               event.decision === 'ALLOW'
                                 ? 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/30'
                                 : event.decision === 'REVIEW'
@@ -1361,31 +1246,29 @@ def create_order(amount: int, category: str, purpose: str):
                             {event.decision}
                           </span>
                         </td>
-                        <td className="py-3.5 px-4 whitespace-nowrap">
-                          <span className="text-zinc-300">
-                            {event.risk_level || 'LOW'} ({event.risk_score.toFixed(2)})
-                          </span>
+                        <td className="py-3 px-4 whitespace-nowrap text-zinc-300">
+                          {event.risk_level || 'LOW'} ({event.risk_score.toFixed(2)})
                         </td>
-                        <td className="py-3.5 px-4 text-zinc-200">{event.tool_name}</td>
-                        <td className="py-3.5 px-4 text-zinc-400 font-sans text-xs">
+                        <td className="py-3 px-4 text-zinc-200">{event.tool_name}</td>
+                        <td className="py-3 px-4 text-zinc-400 font-sans text-xs">
                           {event.reasons.length > 0 ? (
-                            <span className="text-rose-400 font-medium">{event.reasons.join(', ')}</span>
+                            <span className="text-rose-400">{event.reasons.join(', ')}</span>
                           ) : (
-                            <span className="text-emerald-400">Valid</span>
+                            <span className="text-emerald-400 font-mono">OK</span>
                           )}
                         </td>
-                        <td className="py-3.5 px-4 text-zinc-500 whitespace-nowrap text-[11px]">
+                        <td className="py-3 px-4 text-zinc-500 whitespace-nowrap text-[11px]">
                           {event.transaction_id || '—'}
                         </td>
-                        <td className="py-3.5 px-4 text-right">
+                        <td className="py-3 px-4 text-right">
                           <button
                             onClick={(e) => {
                               e.stopPropagation();
                               setSelectedEvent(event);
                             }}
-                            className="p-1.5 rounded-lg hover:bg-zinc-800 text-zinc-400 hover:text-white transition"
+                            className="p-1 rounded hover:bg-zinc-800 text-zinc-400 hover:text-white"
                           >
-                            <ChevronRight className="w-4 h-4" />
+                            <ChevronRight className="w-3.5 h-3.5" />
                           </button>
                         </td>
                       </tr>
@@ -1400,9 +1283,9 @@ def create_order(amount: int, category: str, purpose: str):
 
       {/* Audit Detail Modal Drawer */}
       {selectedEvent && (
-        <div className="fixed inset-0 bg-black/80 backdrop-blur-md flex items-center justify-center p-4 z-50">
-          <div className="glass-panel rounded-3xl w-full max-w-2xl max-h-[85vh] overflow-hidden flex flex-col shadow-2xl border border-white/[0.15]">
-            <div className="p-5 border-b border-zinc-800 flex items-center justify-between bg-black">
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+          <div className="console-card w-full max-w-2xl max-h-[85vh] overflow-hidden flex flex-col shadow-2xl border border-white/[0.15]">
+            <div className="p-4 border-b border-white/[0.08] flex items-center justify-between bg-[#0b0f19]">
               <div className="flex items-center gap-2 font-mono text-xs">
                 <span className="text-zinc-500">Event:</span>
                 <span className="text-white font-semibold">{selectedEvent.event_id}</span>
@@ -1410,22 +1293,22 @@ def create_order(amount: int, category: str, purpose: str):
               <div className="flex items-center gap-2">
                 <button
                   onClick={() => copyToClipboard(JSON.stringify(selectedEvent, null, 2))}
-                  className="p-1.5 rounded-lg hover:bg-zinc-800 text-zinc-400 hover:text-white text-xs flex items-center gap-1 font-mono transition"
+                  className="p-1 rounded hover:bg-zinc-800 text-zinc-400 hover:text-white text-xs flex items-center gap-1 font-mono"
                 >
                   <Copy className="w-3.5 h-3.5" />
                   {copiedText ? 'Copied' : 'Copy'}
                 </button>
                 <button
                   onClick={() => setSelectedEvent(null)}
-                  className="p-1.5 rounded-lg hover:bg-zinc-800 text-zinc-400 hover:text-white transition"
+                  className="p-1 rounded hover:bg-zinc-800 text-zinc-400 hover:text-white"
                 >
                   <X className="w-4 h-4" />
                 </button>
               </div>
             </div>
 
-            <div className="p-6 overflow-y-auto space-y-4 text-xs font-mono">
-              <div className="grid grid-cols-2 gap-3 bg-black p-4 rounded-xl border border-zinc-800">
+            <div className="p-5 overflow-y-auto space-y-4 text-xs font-mono">
+              <div className="grid grid-cols-2 gap-3 bg-black p-3.5 rounded border border-white/[0.08]">
                 <div>
                   <span className="text-zinc-500">Decision:</span>{' '}
                   <span className={
@@ -1453,8 +1336,8 @@ def create_order(amount: int, category: str, purpose: str):
               </div>
 
               <div>
-                <div className="text-zinc-500 uppercase text-[10px] tracking-wider mb-2 font-bold">Raw Audit Payload</div>
-                <pre className="bg-black p-4 rounded-xl border border-zinc-800/80 text-blue-300 overflow-x-auto text-[11px] leading-relaxed">
+                <div className="text-zinc-500 uppercase text-[10px] mb-1 font-bold">Raw Audit Payload</div>
+                <pre className="bg-black p-3.5 rounded border border-white/[0.08] text-indigo-300 overflow-x-auto text-[11px] leading-relaxed">
                   {JSON.stringify(selectedEvent, null, 2)}
                 </pre>
               </div>
@@ -1464,7 +1347,7 @@ def create_order(amount: int, category: str, purpose: str):
       )}
 
       {/* Footer */}
-      <footer className="border-t border-white/[0.06] bg-black px-6 py-6 text-center text-xs font-mono text-zinc-500 mt-auto">
+      <footer className="border-t border-white/[0.06] bg-[#030712] px-6 py-4 text-center text-xs font-mono text-zinc-600 mt-auto">
         AgentShield · The agent may request an action. The agent never authorizes its own action.
       </footer>
     </div>

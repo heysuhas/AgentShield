@@ -2,22 +2,26 @@
 
 :root {
   color-scheme: dark;
-  --bg-pitch: #000000;
-  --bg-glass: rgba(14, 16, 22, 0.7);
-  --border-glass: rgba(255, 255, 255, 0.08);
-  --border-glass-hover: rgba(255, 255, 255, 0.16);
-  --accent-blue: #006fee;
-  --accent-glow: rgba(0, 111, 238, 0.25);
+  --bg-pitch: #030712;
+  --bg-surface: #0b0f19;
+  --border-hairline: rgba(255, 255, 255, 0.08);
+  --border-focus: rgba(99, 102, 241, 0.4);
+  --accent-indigo: #6366f1;
 }
 
 body {
   margin: 0;
   background-color: var(--bg-pitch);
-  color: #ededed;
+  color: #f8fafc;
   font-family: -apple-system, BlinkMacSystemFont, "Geist", "Inter", "Segoe UI", Roboto, sans-serif;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   overflow-x: hidden;
+}
+
+/* Tabular figures for financial amounts and timestamps */
+.tabular-nums {
+  font-variant-numeric: tabular-nums;
 }
 
 /* Custom Sleek Scrollbar */
@@ -26,75 +30,76 @@ body {
   height: 5px;
 }
 ::-webkit-scrollbar-track {
-  background: #000000;
+  background: #030712;
 }
 ::-webkit-scrollbar-thumb {
-  background: #27272a;
+  background: #1e293b;
   border-radius: 9999px;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: #3f3f46;
+  background: #334155;
 }
 
-/* Glassmorphism & iOS Card Surfaces */
-.glass-panel {
-  background: rgba(12, 14, 20, 0.65);
-  backdrop-filter: blur(20px) saturate(190%);
-  -webkit-backdrop-filter: blur(20px) saturate(190%);
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  border-radius: 1.25rem;
-  transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+/* Linear / Vercel Glass Panel */
+.console-card {
+  background: #0b0f19;
+  border: 1px solid var(--border-hairline);
+  border-radius: 0.875rem;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
 }
 
-.glass-panel:hover {
-  border-color: rgba(255, 255, 255, 0.16);
-  box-shadow: 0 12px 30px -8px rgba(0, 0, 0, 0.7);
+.console-card:hover {
+  border-color: rgba(255, 255, 255, 0.14);
 }
 
-.glass-pill {
-  background: rgba(18, 20, 28, 0.8);
-  backdrop-filter: blur(16px);
-  -webkit-backdrop-filter: blur(16px);
-  border: 1px solid rgba(255, 255, 255, 0.09);
-  border-radius: 9999px;
-}
-
-.glass-input {
-  background: rgba(8, 10, 15, 0.85);
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  border-radius: 0.75rem;
+.console-input {
+  background: #030712;
+  border: 1px solid var(--border-hairline);
+  border-radius: 0.5rem;
   color: #ffffff;
-  transition: all 0.2s ease;
+  transition: all 0.15s ease;
 }
 
-.glass-input:focus {
-  border-color: rgba(255, 255, 255, 0.3);
-  box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.06);
+.console-input:focus {
+  border-color: var(--accent-indigo);
+  box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.15);
   outline: none;
 }
 
-/* Flow Line Animation */
-@keyframes flow-pulse {
-  0% { opacity: 0.4; }
-  50% { opacity: 1; }
-  100% { opacity: 0.4; }
-}
-
-.animate-flow-pulse {
-  animation: flow-pulse 3s infinite ease-in-out;
-}
-
-/* Button glow */
-.btn-primary-action {
+/* Primary Action Button */
+.btn-primary {
   background: #ffffff;
   color: #000000;
   font-weight: 600;
-  border-radius: 9999px;
-  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+  border-radius: 0.5rem;
+  transition: all 0.15s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
-.btn-primary-action:hover {
-  background: #e4e4e7;
+.btn-primary:hover {
+  background: #f1f5f9;
   transform: translateY(-1px);
-  box-shadow: 0 4px 15px rgba(255, 255, 255, 0.15);
+  box-shadow: 0 4px 12px rgba(255, 255, 255, 0.12);
+}
+
+.btn-primary:active {
+  transform: translateY(0);
+}
+
+/* Razorpay Blue Action Button */
+.btn-rzp {
+  background: #006fee;
+  color: #ffffff;
+  font-weight: 600;
+  border-radius: 0.5rem;
+  transition: all 0.15s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.btn-rzp:hover {
+  background: #005bc4;
+  transform: translateY(-1px);
+  box-shadow: 0 4px 14px rgba(0, 111, 238, 0.35);
+}
+
+.btn-rzp:active {
+  transform: translateY(0);
 }
