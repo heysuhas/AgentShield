@@ -2,83 +2,99 @@
 
 :root {
   color-scheme: dark;
-  --black: #000000;
-  --zinc-950: #09090b;
-  --zinc-900: #121215;
-  --zinc-850: #18181b;
-  --zinc-800: #27272a;
-  --zinc-700: #3f3f46;
-  --zinc-500: #71717a;
-  --zinc-400: #a1a1aa;
+  --bg-pitch: #000000;
+  --bg-glass: rgba(14, 16, 22, 0.7);
+  --border-glass: rgba(255, 255, 255, 0.08);
+  --border-glass-hover: rgba(255, 255, 255, 0.16);
+  --accent-blue: #006fee;
+  --accent-glow: rgba(0, 111, 238, 0.25);
 }
 
 body {
   margin: 0;
-  background-color: #000000;
-  color: #f4f4f5;
+  background-color: var(--bg-pitch);
+  color: #ededed;
   font-family: -apple-system, BlinkMacSystemFont, "Geist", "Inter", "Segoe UI", Roboto, sans-serif;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  overflow-x: hidden;
 }
 
-/* Micro scrollbar */
+/* Custom Sleek Scrollbar */
 ::-webkit-scrollbar {
-  width: 4px;
-  height: 4px;
+  width: 5px;
+  height: 5px;
 }
 ::-webkit-scrollbar-track {
   background: #000000;
 }
 ::-webkit-scrollbar-thumb {
   background: #27272a;
-  border-radius: 2px;
+  border-radius: 9999px;
 }
 ::-webkit-scrollbar-thumb:hover {
   background: #3f3f46;
 }
 
-/* Monochromatic Precision Panels (No fake AI glows or slop) */
-.kernel-panel {
-  background-color: #09090b;
-  border: 1px solid #1f1f23;
-  border-radius: 12px;
+/* Glassmorphism & iOS Card Surfaces */
+.glass-panel {
+  background: rgba(12, 14, 20, 0.65);
+  backdrop-filter: blur(20px) saturate(190%);
+  -webkit-backdrop-filter: blur(20px) saturate(190%);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 1.25rem;
+  transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
-.kernel-input {
-  background-color: #000000;
-  border: 1px solid #27272a;
-  border-radius: 8px;
+.glass-panel:hover {
+  border-color: rgba(255, 255, 255, 0.16);
+  box-shadow: 0 12px 30px -8px rgba(0, 0, 0, 0.7);
+}
+
+.glass-pill {
+  background: rgba(18, 20, 28, 0.8);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid rgba(255, 255, 255, 0.09);
+  border-radius: 9999px;
+}
+
+.glass-input {
+  background: rgba(8, 10, 15, 0.85);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 0.75rem;
   color: #ffffff;
-  transition: border-color 0.15s ease;
+  transition: all 0.2s ease;
 }
 
-.kernel-input:focus {
-  border-color: #52525b;
+.glass-input:focus {
+  border-color: rgba(255, 255, 255, 0.3);
+  box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.06);
   outline: none;
 }
 
-.kernel-btn {
-  background-color: #ffffff;
+/* Flow Line Animation */
+@keyframes flow-pulse {
+  0% { opacity: 0.4; }
+  50% { opacity: 1; }
+  100% { opacity: 0.4; }
+}
+
+.animate-flow-pulse {
+  animation: flow-pulse 3s infinite ease-in-out;
+}
+
+/* Button glow */
+.btn-primary-action {
+  background: #ffffff;
   color: #000000;
   font-weight: 600;
-  border-radius: 8px;
-  transition: all 0.15s ease;
+  border-radius: 9999px;
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
-.kernel-btn:hover {
-  background-color: #e4e4e7;
-}
-
-.kernel-btn-secondary {
-  background-color: #18181b;
-  border: 1px solid #27272a;
-  color: #d4d4d8;
-  border-radius: 8px;
-  transition: all 0.15s ease;
-}
-
-.kernel-btn-secondary:hover {
-  background-color: #27272a;
-  color: #ffffff;
-  border-color: #3f3f46;
+.btn-primary-action:hover {
+  background: #e4e4e7;
+  transform: translateY(-1px);
+  box-shadow: 0 4px 15px rgba(255, 255, 255, 0.15);
 }

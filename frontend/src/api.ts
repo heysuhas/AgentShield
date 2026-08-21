@@ -2,9 +2,54 @@ import type { AuditEvent, SessionData, Transaction } from './types';
 
 const API_BASE = '/api/v1';
 
-export async function fetchHealth(): Promise<{ status: string }> {
+export async function fetchHealth(): Promise<{
+  status: string;
+  provider?: string;
+  razorpay_configured?: boolean;
+  razorpay_key_id?: string;
+  model?: string;
+  environment?: string;
+}> {
   const res = await fetch('/health');
   return res.json();
+}
+
+export async function fetchPaymentConfig(): Promise<{
+  provider: string;
+  key_id: string | null;
+  currency: string;
+  sandbox_mode: boolean;
+  description: string;
+}> {
+  const res = await fetch(`${API_BASE}/payments/config`);
+  if (!res.ok) throw new Error('Failed to fetch payment config');
+  return res.json();
+}
+
+export async function verifyPayment(payload: {
+  session_id: string;
+  razorpay_order_id: string;
+  razorpay_payment_id: string;
+  razorpay_signature: string;
+  transaction_id?: string;
+}): Promise<{
+  verified: boolean;
+  transaction_id: string | null;
+  status: string;
+  message: string;
+  order_id: string;
+  payment_id: string;
+}> {
+  const res = await fetch(`${API_BASE}/payments/verify`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  const data = await res.json();
+  if (!res.ok) {
+    throw new Error(data.detail || 'Payment verification failed');
+  }
+  return data;
 }
 
 export async function fetchSession(sessionId: string): Promise<SessionData> {
@@ -62,6 +107,25 @@ export async function executeToolCall(
       session_id: sessionId,
       tool_name: toolName,
       arguments: args,
+    }),
+  });
+  return res.json();
+}
+
+export async function executeExternalAgent(
+  sessionId: string,
+  toolName: string,
+  args: Record<string, any>,
+  agentId?: string
+): Promise<any> {
+  const res = await fetch(`${API_BASE}/agent/execute`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      session_id: sessionId,
+      tool_name: toolName,
+      arguments: args,
+      agent_id: agentId || 'external_agent_client',
     }),
   });
   return res.json();
