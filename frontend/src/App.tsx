@@ -266,10 +266,44 @@ function AgentShieldLogo() {
       <section className="main-grid">
         <div className="left-column">
           <div className="panel request-panel">
-            <div className="panel-heading"><div><p className="eyebrow">Your request</p><h2>What do you want to buy?</h2></div><span className="model-label">{health?.model || 'NVIDIA NIM'}</span></div>
-            <textarea value={prompt} onChange={event => setPrompt(event.target.value)} onKeyDown={event => { if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) void submit() }} placeholder="Buy running shoes for ₹1,500" rows={3} />
-            <div className="request-footer"><div className="examples">{EXAMPLES.map(example => <button key={example.label} onClick={() => setPrompt(example.value)} className="example-button">{example.label}</button>)}</div><button className="primary-button" onClick={() => void submit()} disabled={loading || !prompt.trim()}>{loading ? <><Loader2 size={16} className="spin" /> Checking</> : <>Check request <ArrowRight size={16} /></>}</button></div>
-            <p className="hint">Press ⌘ Enter to submit · The model can propose, but it cannot authorize.</p>
+            <div className="panel-heading">
+              <div>
+                <p className="eyebrow">Natural Language Request</p>
+                <h2>Prompt the AI Agent</h2>
+              </div>
+              <span className="model-label">{health?.model || 'openai/gpt-oss-20b'}</span>
+            </div>
+            <div className="prompt-container">
+              <div className="prompt-header">
+                <div className="prompt-header-left">
+                  <span className="prompt-indicator" />
+                  <span className="prompt-header-text">INTENT PROMPT BUFFER</span>
+                </div>
+                <span className="prompt-shortcut">⌘ + Enter</span>
+              </div>
+              <textarea 
+                className="prompt-textarea"
+                value={prompt} 
+                onChange={event => setPrompt(event.target.value)} 
+                onKeyDown={event => { if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) void submit() }} 
+                placeholder="e.g. Buy running shoes for ₹1,500..." 
+                rows={3} 
+              />
+              <div className="prompt-bar">
+                <div className="examples">
+                  <span className="examples-label">Presets:</span>
+                  {EXAMPLES.map(example => (
+                    <button key={example.label} onClick={() => setPrompt(example.value)} className="example-button">
+                      {example.label}
+                    </button>
+                  ))}
+                </div>
+                <button className="primary-button" onClick={() => void submit()} disabled={loading || !prompt.trim()}>
+                  {loading ? <><Loader2 size={15} className="spin" /> Evaluating...</> : <>Authorize Request <ArrowRight size={14} /></>}
+                </button>
+              </div>
+            </div>
+            <p className="hint">The autonomous agent proposes financial tool calls. AgentShield deterministically authorizes execution.</p>
           </div>
 
           {result && decision && <div className={`panel decision-panel ${decision.toLowerCase()}`}>
