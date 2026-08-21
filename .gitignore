@@ -3,8 +3,9 @@
 .env.*
 !.env.example
 
-# Local agent handoff notes (do not publish)
-docs/
+# Local scratch / internal build notes (keep private)
+docs/BACKEND_HANDOFF.md
+docs/STATUS.md
 
 # Python
 __pycache__/

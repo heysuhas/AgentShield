@@ -55,6 +55,8 @@ Any External AI Agent (LangChain / CrewAI / AutoGen / Custom)
     Razorpay Sandbox APIs
 ```
 
+> 📖 **Looking to integrate your own AI agent?** Read the comprehensive [Developer & Integration Guide](docs/INTEGRATION_GUIDE.md) for detailed patterns, LangChain tool wrappers, and protocol extensions.
+
 ---
 
 ## Key Capabilities
@@ -194,6 +196,8 @@ curl -X POST http://localhost:8000/api/v1/agent/execute \
   }'
 ```
 
+For full TypeScript, Go, and webhook lifecycle examples, see the [Developer & Integration Guide](docs/INTEGRATION_GUIDE.md).
+
 ---
 
 ## API Reference Summary
@@ -228,6 +232,14 @@ uv run pytest -v
 ```text
 ======================== 112 passed, 1 warning in 1.87s ========================
 ```
+
+---
+
+## Documentation
+
+- [Developer & Integration Guide](docs/INTEGRATION_GUIDE.md): Detailed integration patterns, LangChain wrappers, and lifecycle management.
+- [Architecture Deep Dive](docs/ARCHITECTURE.md): Core component breakdown and threat model.
+- [Setup Guide](docs/SETUP.md): Local development and Docker environment configuration.
 
 ---
 
