@@ -43,9 +43,9 @@ function DecisionRail({ decision }: { decision: ReturnType<typeof decisionOf> })
 }
 
 function StatusMark({ decision }: { decision: string | null }) {
-  if (decision === 'ALLOW') return <span className="status-mark allowed"><Check size={16} /></span>
-  if (decision === 'REVIEW') return <span className="status-mark review"><Clock3 size={16} /></span>
-  return <span className="status-mark blocked"><X size={16} /></span>
+  if (decision === 'ALLOW') return <span className="status-mark allowed"><Check size={13} strokeWidth={2.5} /></span>
+  if (decision === 'REVIEW') return <span className="status-mark review"><Clock3 size={13} strokeWidth={2.5} /></span>
+  return <span className="status-mark blocked"><X size={13} strokeWidth={2.5} /></span>
 }
 function formatEventTime(timestamp: string | Date | undefined) {
   if (!timestamp) return 'Just now'
@@ -101,9 +101,9 @@ export default function App() {
   const isRazorpay = paymentConfig?.provider === 'razorpay' && Boolean(paymentConfig?.key_id)
   const spendPercent = session?.policy?.max_session_spend ? Math.min(100, (session.total_active_spend / session.policy.max_session_spend) * 100) : 0
   const statusCopy = useMemo(() => ({
-    ALLOW: { title: 'Payment is authorized', body: 'The request matched the session policy and authorized intent.' },
-    REVIEW: { title: 'A human decision is required', body: 'The amount is held safely until an operator approves or rejects it.' },
-    BLOCK: { title: 'Payment was blocked', body: 'AgentShield stopped the request before it reached the payment provider.' },
+    ALLOW: { title: 'Transaction Authorized', body: 'The proposed tool call matched user intent and satisfied all deterministic security policies.' },
+    REVIEW: { title: 'Manual Approval Required', body: 'Transaction exceeds standard threshold. Funds reserved pending operator review.' },
+    BLOCK: { title: 'Transaction Blocked', body: 'AgentShield intercepted and blocked this operation prior to payment provider dispatch.' },
   } as const), [])
 
   const submit = async (value = prompt) => {
@@ -116,7 +116,7 @@ export default function App() {
 
   const openCheckout = () => {
     if (!window.Razorpay || !isRazorpay || !order?.id || !execution?.transaction_id) {
-      setPaymentMessage('Checkout is unavailable until a real Razorpay order and transaction are returned.')
+      setPaymentMessage('Checkout is unavailable until a valid Razorpay order ID is received.')
       return
     }
     const amount = Number(order.amount ?? execution?.provider_result?.order?.amount ?? 0) * 100
@@ -127,8 +127,8 @@ export default function App() {
         amount,
         currency: order.currency || 'INR',
         name: 'AgentShield',
-        description: 'Authorized purchase',
-        theme: { color: '#18d5c5' },
+        description: 'Authorized Purchase Order',
+        theme: { color: '#10b981' },
         method: { upi: true, card: true, netbanking: true, wallet: true, paylater: true },
         config: {
           display: {
@@ -139,13 +139,13 @@ export default function App() {
         notes: { session_id: sessionId, transaction_id: execution.transaction_id },
         handler: async (response: any) => {
           if (!response?.razorpay_order_id || !response?.razorpay_payment_id || !response?.razorpay_signature) {
-            setPaymentMessage('Razorpay returned an incomplete payment response. Nothing was marked successful.')
+            setPaymentMessage('Incomplete response received from Razorpay. Transaction unverified.')
             return
           }
           try {
             const verified = await verifyPayment({ session_id: sessionId, transaction_id: execution.transaction_id, razorpay_order_id: response.razorpay_order_id, razorpay_payment_id: response.razorpay_payment_id, razorpay_signature: response.razorpay_signature })
             setPaymentMessage(verified.message); await refresh()
-          } catch (cause: any) { setPaymentMessage(cause.message || 'Payment verification failed') }
+          } catch (cause: any) { setPaymentMessage(cause.message || 'Payment signature verification failed') }
         },
       })
       checkout.on('payment.failed', (response: any) => setPaymentMessage(response?.error?.description || 'Payment was not completed'))
@@ -156,7 +156,7 @@ export default function App() {
   const review = async (approvalId: string, approve: boolean) => {
     setReviewing(approvalId); setError(null)
     try { setResult(approve ? await approveReview(approvalId) : await rejectReview(approvalId)); await refresh() }
-    catch (cause: any) { setError(cause.message || 'Could not update the review') }
+    catch (cause: any) { setError(cause.message || 'Could not update approval status') }
     finally { setReviewing(null) }
   }
 
@@ -165,7 +165,7 @@ export default function App() {
     try {
       const updated = await resetSessionSpend(sessionId)
       setSession(updated)
-      setPaymentMessage('Session spend was reset. Existing audit and transaction history is preserved.')
+      setPaymentMessage('Session spend ledger reset. Existing audit logs and policy records preserved.')
       await refresh()
     } catch (cause: any) { setError(cause.message || 'Could not reset session spend') }
     finally { setResettingSpend(false) }
@@ -194,7 +194,6 @@ function AgentShieldLogo() {
       </div>
       <div className="brand-text-wrap">
         <span className="brand-title">AgentShield</span>
-        <span className="brand-tag">TRUST GATE</span>
       </div>
     </div>
   )
@@ -202,13 +201,23 @@ function AgentShieldLogo() {
 
   return <div className="app-shell">
     <header className="topbar">
-      <div className="brand"><AgentShieldLogo /></div>
+      <div className="brand-group">
+        <AgentShieldLogo />
+        <span className="topbar-divider" />
+        <span className="topbar-context-badge">FINANCIAL RISK LAYER</span>
+      </div>
       <div className="topbar-meta">
-        <span className={`service-dot ${health?.status === 'offline' ? 'offline' : ''}`} /> 
-        <span>{health?.status === 'offline' ? 'Offline' : 'Sandbox connected'}</span>
-        <button className="session-chip-button" onClick={() => setShowSessionModal(true)} title="Switch User / Session">
-          <span>👤 {sessionId}</span>
-          <ChevronDown size={12} />
+        <div className="system-status-pill">
+          <span className={`service-dot ${health?.status === 'offline' ? 'offline' : ''}`} /> 
+          <span>{health?.status === 'offline' ? 'System Offline' : 'Operational'}</span>
+        </div>
+        <div className="provider-badge">
+          <span>{isRazorpay ? 'Razorpay Testnet' : 'Sandbox Provider'}</span>
+        </div>
+        <button className="session-chip-button" onClick={() => setShowSessionModal(true)} title="Switch Active Session">
+          <span className="session-avatar">👤</span>
+          <span className="session-text">{sessionId}</span>
+          <ChevronDown size={11} className="session-chevron" />
         </button>
       </div>
     </header>
@@ -218,14 +227,14 @@ function AgentShieldLogo() {
         <div className="modal-header">
           <div>
             <p className="eyebrow">Identity & Session</p>
-            <h3>Switch User / Agent Session</h3>
+            <h3>Switch Agent Workspace</h3>
           </div>
           <button className="icon-button" onClick={() => setShowSessionModal(false)}><X size={15} /></button>
         </div>
         <p className="intro-copy" style={{ fontSize: '13px', marginBottom: '14px' }}>
-          Each user identity gets an isolated spending ledger, dynamic intent, and audit trail.
+          Each user identity maintains an isolated spending ledger, intent record, and cryptographic audit trail.
         </p>
-        <p className="eyebrow" style={{ margin: '14px 0 6px' }}>Quick Select</p>
+        <p className="eyebrow" style={{ margin: '14px 0 6px' }}>Active Profiles</p>
         <div className="modal-presets">
           {['demo_shopper_01', 'shopper_alice_02', 'procurement_bot_03', 'risk_tester_04'].map(id => (
             <button 
@@ -237,19 +246,19 @@ function AgentShieldLogo() {
             </button>
           ))}
         </div>
-        <p className="eyebrow" style={{ margin: '14px 0 6px' }}>Or Enter Custom User ID</p>
+        <p className="eyebrow" style={{ margin: '14px 0 6px' }}>Custom Session Key</p>
         <form onSubmit={e => { e.preventDefault(); handleSwitchSession(customSessionInput) }}>
           <input 
             type="text" 
             className="modal-input" 
-            placeholder="e.g. user_bob_finance" 
+            placeholder="e.g. user_finance_ops" 
             value={customSessionInput}
             onChange={e => setCustomSessionInput(e.target.value)}
             autoFocus
           />
           <div className="modal-actions">
             <button type="button" className="quiet-button" onClick={() => setShowSessionModal(false)}>Cancel</button>
-            <button type="submit" className="primary-button" disabled={!customSessionInput.trim()}>Switch User</button>
+            <button type="submit" className="primary-button" disabled={!customSessionInput.trim()}>Switch Workspace</button>
           </div>
         </form>
       </div>
@@ -257,8 +266,18 @@ function AgentShieldLogo() {
 
     <main className="workspace">
       <section className="intro">
-        <div><p className="eyebrow">Protected payments for AI agents</p><h1>Let the agent ask.<br /><em>Keep the decision yours.</em></h1><p className="intro-copy">Describe a purchase. AgentShield checks the request against your intent and spending rules before any payment is created.</p></div>
-        <div className="policy-note"><LockKeyhole size={15} /><div><strong>Session protected</strong><span>{money(session?.policy?.max_transaction_amount)} per purchase · {money(session?.policy?.max_session_spend)} total</span></div></div>
+        <div>
+          <p className="eyebrow">Agent Spending & Intent Policy</p>
+          <h1>Autonomous Agent Control.<br /><em>Deterministic Financial Authorization.</em></h1>
+          <p className="intro-copy">Specify high-level financial objectives. AgentShield verifies semantic intent and deterministic policy constraints before payment execution.</p>
+        </div>
+        <div className="policy-note">
+          <LockKeyhole size={15} />
+          <div>
+            <strong>Session Enforcement</strong>
+            <span>{money(session?.policy?.max_transaction_amount)} per txn · {money(session?.policy?.max_session_spend)} session cap</span>
+          </div>
+        </div>
       </section>
 
       <DecisionRail decision={decision} />
@@ -268,8 +287,8 @@ function AgentShieldLogo() {
           <div className="panel request-panel">
             <div className="panel-heading">
               <div>
-                <p className="eyebrow">Natural Language Request</p>
-                <h2>Prompt the AI Agent</h2>
+                <p className="eyebrow">Agent Dispatch</p>
+                <h2>Transaction Dispatch</h2>
               </div>
               <span className="model-label">{health?.model || 'openai/gpt-oss-20b'}</span>
             </div>
@@ -277,7 +296,7 @@ function AgentShieldLogo() {
               <div className="prompt-header">
                 <div className="prompt-header-left">
                   <span className="prompt-indicator" />
-                  <span className="prompt-header-text">INTENT PROMPT BUFFER</span>
+                  <span className="prompt-header-text">TRANSACTION INSTRUCTION</span>
                 </div>
                 <span className="prompt-shortcut">⌘ + Enter</span>
               </div>
@@ -291,7 +310,7 @@ function AgentShieldLogo() {
               />
               <div className="prompt-bar">
                 <div className="examples">
-                  <span className="examples-label">Presets:</span>
+                  <span className="examples-label">Scenarios:</span>
                   {EXAMPLES.map(example => (
                     <button key={example.label} onClick={() => setPrompt(example.value)} className="example-button">
                       {example.label}
@@ -299,35 +318,139 @@ function AgentShieldLogo() {
                   ))}
                 </div>
                 <button className="primary-button" onClick={() => void submit()} disabled={loading || !prompt.trim()}>
-                  {loading ? <><Loader2 size={15} className="spin" /> Evaluating...</> : <>Authorize Request <ArrowRight size={14} /></>}
+                  {loading ? <><Loader2 size={15} className="spin" /> Evaluating...</> : <>Evaluate & Dispatch <ArrowRight size={14} /></>}
                 </button>
               </div>
             </div>
-            <p className="hint">The autonomous agent proposes financial tool calls. AgentShield deterministically authorizes execution.</p>
+            <p className="hint">Agent tool calls are treated as untrusted proposals and verified against deterministic policies.</p>
           </div>
 
           {result && decision && <div className={`panel decision-panel ${decision.toLowerCase()}`}>
-            <div className="decision-heading"><StatusMark decision={decision} /><div><p className="eyebrow">AgentShield decision</p><h2>{statusCopy[decision].title}</h2></div><span className="decision-word">{decision}</span></div>
+            <div className="decision-heading">
+              <StatusMark decision={decision} />
+              <div>
+                <p className="eyebrow">AgentShield Authorization</p>
+                <h2>{statusCopy[decision].title}</h2>
+              </div>
+              <span className="decision-word">{decision}</span>
+            </div>
             <p className="decision-body">{statusCopy[decision].body}</p>
-            <div className="proposal"><span>Agent proposed</span><code>{execution?.tool_name || result.proposed_tool_call?.tool_name || 'create_order'}</code><strong>{money(execution?.arguments?.amount || result.proposed_tool_call?.arguments?.amount)}</strong><span>{execution?.arguments?.category || result.proposed_tool_call?.arguments?.category || '—'}</span></div>
-            {decision === 'ALLOW' && order?.id && <div className="payment-action"><div><strong>Payment order ready</strong><span>{order.id}</span></div><button className="payment-button" onClick={openCheckout}>Open secure checkout <ArrowRight size={15} /></button></div>}
-            {decision === 'REVIEW' && <div className="inline-note review-note"><Clock3 size={16} /><span>Approval is waiting below. No payment provider has been called.</span></div>}
-            {decision === 'BLOCK' && <div className="reason-list"><strong>Why it stopped</strong>{reasonText(result).map((reason: string) => <span key={reason}><X size={14} />{reason.replaceAll('_', ' ').toLowerCase()}</span>)}</div>}
-            {paymentMessage && <div className="inline-note payment-note"><CircleCheck size={16} />{paymentMessage}</div>}
-            <button className="details-toggle" onClick={() => setShowDetails(value => !value)}>{showDetails ? 'Hide details' : 'View decision details'} <ChevronDown size={14} className={showDetails ? 'flip' : ''} /></button>
+            <div className="proposal">
+              <span>Proposed Tool</span>
+              <code>{execution?.tool_name || result.proposed_tool_call?.tool_name || 'create_order'}</code>
+              <strong>{money(execution?.arguments?.amount || result.proposed_tool_call?.arguments?.amount)}</strong>
+              <span>{execution?.arguments?.category || result.proposed_tool_call?.arguments?.category || '—'}</span>
+            </div>
+            {decision === 'ALLOW' && order?.id && <div className="payment-action">
+              <div>
+                <strong>Payment Order Created</strong>
+                <span>{order.id}</span>
+              </div>
+              <button className="payment-button" onClick={openCheckout}>Open Secure Checkout <ArrowRight size={14} /></button>
+            </div>}
+            {decision === 'REVIEW' && <div className="inline-note review-note">
+              <Clock3 size={16} />
+              <span>Operator approval required. Tool call held in state without provider dispatch.</span>
+            </div>}
+            {decision === 'BLOCK' && <div className="reason-list">
+              <strong>Intercept Reasons</strong>
+              {reasonText(result).map((reason: string) => (
+                <span key={reason}><X size={14} />{reason.replaceAll('_', ' ')}</span>
+              ))}
+            </div>}
+            {paymentMessage && <div className="inline-note payment-note">
+              <CircleCheck size={16} />
+              {paymentMessage}
+            </div>}
+            <button className="details-toggle" onClick={() => setShowDetails(value => !value)}>
+              {showDetails ? 'Hide Telemetry' : 'View Decision Telemetry'} <ChevronDown size={14} className={showDetails ? 'flip' : ''} />
+            </button>
             {showDetails && <pre className="json-view">{JSON.stringify(result, null, 2)}</pre>}
           </div>}
 
-          {error && <div className="error-banner"><CircleAlert size={17} />{error}<button onClick={() => setError(null)}><X size={15} /></button></div>}
+          {error && <div className="error-banner">
+            <CircleAlert size={17} />
+            {error}
+            <button onClick={() => setError(null)}><X size={15} /></button>
+          </div>}
         </div>
 
         <aside className="right-column">
-          {approvals.length > 0 && <div className="panel approval-panel"><div className="panel-heading compact"><div><p className="eyebrow amber">Action needed</p><h2>Review purchase</h2></div><span className="count-badge">{approvals.length}</span></div>{approvals.map(item => <div className="approval-item" key={item.approval_id}><div className="approval-summary"><strong>{money(item.amount)} purchase</strong><span>{item.arguments?.category || 'Purchase'} · {item.transaction_id.slice(0, 14)}…</span></div><div className="approval-actions"><button onClick={() => void review(item.approval_id, false)} disabled={reviewing === item.approval_id} className="quiet-button">Reject</button><button onClick={() => void review(item.approval_id, true)} disabled={reviewing === item.approval_id} className="approve-button">Approve</button></div></div>)}</div>}
-          <div className="panel activity-panel"><div className="panel-heading compact"><div><p className="eyebrow">Recent activity</p><h2>What happened</h2></div><button className="icon-button" onClick={() => void refresh()} aria-label="Refresh activity"><RefreshCw size={15} /></button></div>{events.length === 0 ? <p className="empty-state">Your first decision will appear here.</p> : <div className="activity-list">{events.map(event => <div className="activity-item" key={event.event_id}><StatusMark decision={event.decision} /><div><strong>{event.decision === 'ALLOW' ? 'Authorized purchase' : event.decision === 'REVIEW' ? 'Waiting for approval' : 'Request blocked'}</strong><span>{event.tool_name} · {formatEventTime(event.timestamp)}</span></div><b>{money(event.arguments?.amount)}</b></div>)}</div>}</div>
-          <div className="spend-panel"><div className="spend-heading"><div><span>Session spend</span><strong>{money(session?.total_active_spend)}</strong></div><button className="reset-button" onClick={() => void resetSpend()} disabled={resettingSpend} title="Reset current session spend"><RefreshCw size={12} className={resettingSpend ? 'spin' : ''} /> {resettingSpend ? 'Resetting' : 'Reset spend'}</button></div><div className="spend-track"><span style={{ width: `${spendPercent}%` }} /></div><div className="spend-footer"><span>{money(session?.committed_spend)} settled</span><span>{money(session?.policy?.max_session_spend)} limit</span></div></div>
+          {approvals.length > 0 && <div className="panel approval-panel">
+            <div className="panel-heading compact">
+              <div>
+                <p className="eyebrow amber">Pending Approval</p>
+                <h2>Operator Review</h2>
+              </div>
+              <span className="count-badge">{approvals.length}</span>
+            </div>
+            {approvals.map(item => (
+              <div className="approval-item" key={item.approval_id}>
+                <div className="approval-summary">
+                  <strong>{money(item.amount)} Order</strong>
+                  <span>{item.arguments?.category || 'General'} · {item.transaction_id.slice(0, 14)}…</span>
+                </div>
+                <div className="approval-actions">
+                  <button onClick={() => void review(item.approval_id, false)} disabled={reviewing === item.approval_id} className="quiet-button">Reject</button>
+                  <button onClick={() => void review(item.approval_id, true)} disabled={reviewing === item.approval_id} className="approve-button">Approve</button>
+                </div>
+              </div>
+            ))}
+          </div>}
+
+          <div className="panel activity-panel">
+            <div className="panel-heading compact">
+              <div>
+                <p className="eyebrow">Audit Stream</p>
+                <h2>Recent Transactions</h2>
+              </div>
+              <button className="icon-button" onClick={() => void refresh()} aria-label="Refresh activity">
+                <RefreshCw size={14} />
+              </button>
+            </div>
+            {events.length === 0 ? (
+              <p className="empty-state">No transaction events recorded yet.</p>
+            ) : (
+              <div className="activity-list">
+                {events.map(event => (
+                  <div className="activity-item" key={event.event_id}>
+                    <StatusMark decision={event.decision} />
+                    <div>
+                      <strong>{event.decision === 'ALLOW' ? 'Authorized Transaction' : event.decision === 'REVIEW' ? 'Pending Human Review' : 'Policy Blocked'}</strong>
+                      <span>{event.tool_name} · {formatEventTime(event.timestamp)}</span>
+                    </div>
+                    <b>{money(event.arguments?.amount)}</b>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          <div className="spend-panel">
+            <div className="spend-heading">
+              <div className="spend-stat">
+                <span className="spend-label">Session spend</span>
+                <strong className="spend-amount">{money(session?.total_active_spend)}</strong>
+              </div>
+              <button className="reset-button" onClick={() => void resetSpend()} disabled={resettingSpend} title="Reset current session spend">
+                <RefreshCw size={11} className={resettingSpend ? 'spin' : ''} /> {resettingSpend ? 'Resetting...' : 'Reset spend'}
+              </button>
+            </div>
+            <div className="spend-track">
+              <span style={{ width: `${spendPercent}%` }} />
+            </div>
+            <div className="spend-footer">
+              <span>{money(session?.committed_spend)} settled</span>
+              <span>{money(session?.policy?.max_session_spend)} limit</span>
+            </div>
+          </div>
         </aside>
       </section>
-      <footer className="footer"><span>AgentShield decides before money moves.</span><span>{isRazorpay ? 'Razorpay test mode' : 'Mock payment mode'} · API v1</span></footer>
+
+      <footer className="footer">
+        <span>AgentShield — Authorization & Risk Layer for AI Agents</span>
+        <span>{isRazorpay ? 'Razorpay Testnet' : 'Sandbox Provider'} · API v1</span>
+      </footer>
     </main>
   </div>
 }
