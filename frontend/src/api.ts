@@ -65,6 +65,15 @@ export async function createOrInitSession(
   policy?: any,
   intent?: any
 ): Promise<SessionData> {
+  // Refreshing the dashboard should not repeatedly POST and generate noisy
+  // 409 responses. Read the existing session first, then create only on 404.
+  const existing = await fetch(`${API_BASE}/sessions/${sessionId}`);
+  if (existing.ok) return existing.json();
+  if (existing.status !== 404) {
+    const body = await existing.json().catch(() => ({}));
+    throw new Error(body.detail || `Failed to load session (${existing.status})`);
+  }
+
   const res = await fetch(`${API_BASE}/sessions`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -86,11 +95,10 @@ export async function createOrInitSession(
       },
     }),
   });
-  if (res.status === 409) {
-    return fetchSession(sessionId);
-  }
+  if (res.status === 409) return fetchSession(sessionId);
   if (!res.ok) {
-    throw new Error(`Failed to create session (${res.status})`);
+    const body = await res.json().catch(() => ({}));
+    throw new Error(body.detail || `Failed to create session (${res.status})`);
   }
   return res.json();
 }
@@ -164,11 +172,12 @@ export async function fetchTransactions(
 }
 
 export async function resetSessionSpend(sessionId: string): Promise<SessionData> {
-  const res = await fetch(`${API_BASE}/sessions/${sessionId}/reset-spend`, {
+  const res = await fetch(`${API_BASE}/sessions/${sessionId}/reset`, {
     method: 'POST',
   });
-  if (!res.ok) throw new Error('Failed to reset session spend');
-  return res.json();
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(body.detail || `Failed to reset session spend (${res.status})`);
+  return body;
 }
 
 export async function reconcileSession(sessionId: string): Promise<SessionData> {

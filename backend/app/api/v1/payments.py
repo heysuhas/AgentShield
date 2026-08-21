@@ -118,22 +118,44 @@ def _settle_transaction(
     target_txn = None
     if payload.transaction_id:
         target_txn = shield.transaction_store.get(payload.transaction_id)
+        if target_txn is None or target_txn.session_id != payload.session_id:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Transaction was not found for this session",
+            )
+
     else:
-        # Search recent transactions for this session matching the order_id in provider result
-        recent = shield.transaction_store.list_for_session(payload.session_id, limit=20)
+        # Never settle an arbitrary recent reservation. Only an exact provider
+        # order mapping is safe when a client omits the internal transaction ID.
+        recent = shield.transaction_store.list_by_session(payload.session_id)[:50]
         for txn in recent:
-            if txn.status in (TransactionStatus.AUTHORIZED, TransactionStatus.PENDING):
+            if (
+                txn.status in (TransactionStatus.AUTHORIZED, TransactionStatus.PENDING)
+                and txn.provider_order_id == payload.razorpay_order_id
+            ):
                 target_txn = txn
                 break
+        if target_txn is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="No pending AgentShield transaction matches this Razorpay order",
+            )
 
-    txn_id_str = None
-    if target_txn:
-        txn_id_str = target_txn.transaction_id
-        # Settle transaction
-        shield.transaction_store.update_status(
+    txn_id_str = target_txn.transaction_id
+    if target_txn.status == TransactionStatus.SUCCEEDED:
+        # Provider order creation is already recorded as SUCCEEDED by the
+        # execution pipeline. Verification is an idempotent settlement check.
+        settled = target_txn
+    else:
+        settled = shield.transaction_store.update_status(
             target_txn.transaction_id,
-            TransactionStatus.SUCCEEDED,
+            status=TransactionStatus.SUCCEEDED,
         )
+        if settled is None:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Transaction is no longer awaiting payment settlement",
+            )
 
     # Record successful payment audit event
     shield.audit_sink.create_and_record(
