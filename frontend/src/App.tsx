@@ -46,8 +46,8 @@ function StatusMark({ decision }: { decision: string | null }) {
   if (decision === 'ALLOW') {
     return (
       <span className="status-mark allowed" title="Authorized">
-        <svg viewBox="0 0 16 16" fill="none" className="status-icon">
-          <path d="M3.5 8.5L6.5 11.5L12.5 4.5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="status-svg">
+          <polyline points="20 6 9 17 4 12" />
         </svg>
       </span>
     )
@@ -55,17 +55,18 @@ function StatusMark({ decision }: { decision: string | null }) {
   if (decision === 'REVIEW') {
     return (
       <span className="status-mark review" title="Review Required">
-        <svg viewBox="0 0 16 16" fill="none" className="status-icon">
-          <circle cx="8" cy="8" r="5.5" stroke="currentColor" strokeWidth="1.75" />
-          <path d="M8 5V8L10 9.5" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" />
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="status-svg">
+          <circle cx="12" cy="12" r="9" />
+          <polyline points="12 7 12 12 15 15" />
         </svg>
       </span>
     )
   }
   return (
     <span className="status-mark blocked" title="Blocked">
-      <svg viewBox="0 0 16 16" fill="none" className="status-icon">
-        <path d="M4.5 4.5L11.5 11.5M11.5 4.5L4.5 11.5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="status-svg">
+        <line x1="18" y1="6" x2="6" y2="18" />
+        <line x1="6" y1="6" x2="18" y2="18" />
       </svg>
     </span>
   )

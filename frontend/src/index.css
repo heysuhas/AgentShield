@@ -253,32 +253,53 @@ code, .eyebrow, .model-label, .session-chip-button, .proposal, .json-view, .rail
 
 /* Centered Status Mark with balanced optical ratio */
 .status-mark { 
-  display: grid;
-  place-items: center;
-  width: 20px; 
-  height: 20px; 
-  min-width: 20px;
-  min-height: 20px;
+  display: flex; 
+  align-items: center; 
+  justify-content: center; 
+  width: 22px; 
+  height: 22px; 
+  min-width: 22px; 
+  min-height: 22px; 
+  max-width: 22px; 
+  max-height: 22px; 
   border-radius: 50%; 
-  flex-shrink: 0;
-  box-sizing: border-box;
-  padding: 0;
+  flex-shrink: 0; 
+  box-sizing: border-box; 
+  padding: 0; 
+  margin: 0; 
+  line-height: 0; 
+  font-size: 0; 
+  align-self: center; 
+  overflow: hidden;
 } 
-.status-icon {
-  width: 11px;
-  height: 11px;
+.status-svg {
+  width: 12px;
+  height: 12px;
+  min-width: 12px;
+  min-height: 12px;
+  max-width: 12px;
+  max-height: 12px;
   display: block;
+  margin: auto;
+  flex-shrink: 0;
+  vertical-align: unset;
 }
 .decision-heading .status-mark {
-  width: 26px;
-  height: 26px;
-  min-width: 26px;
-  min-height: 26px;
-  border-radius: 6px;
+  width: 28px;
+  height: 28px;
+  min-width: 28px;
+  min-height: 28px;
+  max-width: 28px;
+  max-height: 28px;
+  border-radius: 7px;
 }
-.decision-heading .status-icon {
-  width: 14px;
-  height: 14px;
+.decision-heading .status-svg {
+  width: 15px;
+  height: 15px;
+  min-width: 15px;
+  min-height: 15px;
+  max-width: 15px;
+  max-height: 15px;
 }
 .status-mark.allowed { 
   color: #22c55e; 
