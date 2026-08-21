@@ -426,6 +426,10 @@ class SqlAlchemyAuditSink:
             else None
         )
 
+        ts = model.timestamp
+        if ts is not None and ts.tzinfo is None:
+            ts = ts.replace(tzinfo=timezone.utc)
+
         return AuditEvent(
             event_id=model.event_id,
             transaction_id=model.transaction_id,
@@ -443,7 +447,7 @@ class SqlAlchemyAuditSink:
             semantic_validation=semantic_validation,
             provider_name=model.provider_name,
             provider_result=prov_res,
-            timestamp=model.timestamp,
+            timestamp=ts,
         )
 
 

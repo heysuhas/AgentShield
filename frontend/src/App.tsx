@@ -3,7 +3,6 @@ import { ArrowRight, Check, ChevronDown, CircleAlert, CircleCheck, Clock3, Loade
 import { approveReview, createOrInitSession, fetchApprovals, fetchAuditEvents, fetchHealth, fetchPaymentConfig, rejectReview, resetSessionSpend, runAgent, verifyPayment } from './api'
 import type { ApprovalRecord, AuditEvent, SessionData } from './types'
 
-const SESSION_ID = 'demo_shopper_01'
 const EXAMPLES = [
   { label: 'Keyboard (₹1.5k)', value: 'Buy a mechanical keyboard for ₹1,500' },
   { label: 'Shoes (₹1.5k)', value: 'Buy running shoes for ₹1,500' },
@@ -48,8 +47,21 @@ function StatusMark({ decision }: { decision: string | null }) {
   if (decision === 'REVIEW') return <span className="status-mark review"><Clock3 size={16} /></span>
   return <span className="status-mark blocked"><X size={16} /></span>
 }
+function formatEventTime(timestamp: string | Date | undefined) {
+  if (!timestamp) return 'Just now'
+  let str = String(timestamp).trim()
+  if (!str.endsWith('Z') && !/[+-]\d{2}:?\d{2}$/.test(str)) {
+    str = str.replace(' ', 'T') + 'Z'
+  }
+  const date = new Date(str)
+  if (isNaN(date.getTime())) return 'Just now'
+  return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+}
 
 export default function App() {
+  const [sessionId, setSessionId] = useState('demo_shopper_01')
+  const [showSessionModal, setShowSessionModal] = useState(false)
+  const [customSessionInput, setCustomSessionInput] = useState('')
   const [prompt, setPrompt] = useState(EXAMPLES[0].value)
   const [session, setSession] = useState<SessionData | null>(null)
   const [result, setResult] = useState<Result>(null)
@@ -67,9 +79,9 @@ export default function App() {
   const refresh = useCallback(async () => {
     try {
       const [nextSession, audit, pending, nextHealth, config] = await Promise.all([
-        createOrInitSession(SESSION_ID),
-        fetchAuditEvents(SESSION_ID, undefined, undefined, 8),
-        fetchApprovals(SESSION_ID, 'PENDING', 10),
+        createOrInitSession(sessionId),
+        fetchAuditEvents(sessionId, undefined, undefined, 8),
+        fetchApprovals(sessionId, 'PENDING', 10),
         fetchHealth().catch(() => ({ status: 'offline' })),
         fetchPaymentConfig().catch(() => null),
       ])
@@ -79,7 +91,7 @@ export default function App() {
       setHealth(nextHealth)
       setPaymentConfig(config)
     } catch (cause: any) { setError(cause.message || 'Could not connect to AgentShield') }
-  }, [])
+  }, [sessionId])
 
   useEffect(() => { void refresh(); const timer = window.setInterval(() => void refresh(), 5000); return () => window.clearInterval(timer) }, [refresh])
 
@@ -97,7 +109,7 @@ export default function App() {
   const submit = async (value = prompt) => {
     if (!value.trim() || loading) return
     setLoading(true); setError(null); setPaymentMessage(null); setShowDetails(false)
-    try { setPrompt(value); setResult(await runAgent(SESSION_ID, value)); await refresh() }
+    try { setPrompt(value); setResult(await runAgent(sessionId, value)); await refresh() }
     catch (cause: any) { setError(cause.message || 'The agent could not complete the request'); setResult(null) }
     finally { setLoading(false) }
   }
@@ -124,14 +136,14 @@ export default function App() {
             preferences: { show_default_blocks: true },
           },
         },
-        notes: { session_id: SESSION_ID, transaction_id: execution.transaction_id },
+        notes: { session_id: sessionId, transaction_id: execution.transaction_id },
         handler: async (response: any) => {
           if (!response?.razorpay_order_id || !response?.razorpay_payment_id || !response?.razorpay_signature) {
             setPaymentMessage('Razorpay returned an incomplete payment response. Nothing was marked successful.')
             return
           }
           try {
-            const verified = await verifyPayment({ session_id: SESSION_ID, transaction_id: execution.transaction_id, razorpay_order_id: response.razorpay_order_id, razorpay_payment_id: response.razorpay_payment_id, razorpay_signature: response.razorpay_signature })
+            const verified = await verifyPayment({ session_id: sessionId, transaction_id: execution.transaction_id, razorpay_order_id: response.razorpay_order_id, razorpay_payment_id: response.razorpay_payment_id, razorpay_signature: response.razorpay_signature })
             setPaymentMessage(verified.message); await refresh()
           } catch (cause: any) { setPaymentMessage(cause.message || 'Payment verification failed') }
         },
@@ -151,7 +163,7 @@ export default function App() {
   const resetSpend = async () => {
     setResettingSpend(true); setError(null); setPaymentMessage(null)
     try {
-      const updated = await resetSessionSpend(SESSION_ID)
+      const updated = await resetSessionSpend(sessionId)
       setSession(updated)
       setPaymentMessage('Session spend was reset. Existing audit and transaction history is preserved.')
       await refresh()
@@ -159,11 +171,71 @@ export default function App() {
     finally { setResettingSpend(false) }
   }
 
+  const handleSwitchSession = (newId: string) => {
+    const trimmed = newId.trim()
+    if (!trimmed) return
+    setSessionId(trimmed)
+    setResult(null)
+    setError(null)
+    setPaymentMessage(null)
+    setShowSessionModal(false)
+    setCustomSessionInput('')
+  }
+
   return <div className="app-shell">
     <header className="topbar">
       <div className="brand"><span className="brand-mark"><ShieldCheck size={17} /></span><span>AgentShield</span></div>
-      <div className="topbar-meta"><span className={`service-dot ${health?.status === 'offline' ? 'offline' : ''}`} /> <span>{health?.status === 'offline' ? 'Offline' : 'Sandbox connected'}</span><span className="session-chip">{SESSION_ID}</span></div>
+      <div className="topbar-meta">
+        <span className={`service-dot ${health?.status === 'offline' ? 'offline' : ''}`} /> 
+        <span>{health?.status === 'offline' ? 'Offline' : 'Sandbox connected'}</span>
+        <button className="session-chip-button" onClick={() => setShowSessionModal(true)} title="Switch User / Session">
+          <span>👤 {sessionId}</span>
+          <ChevronDown size={12} />
+        </button>
+      </div>
     </header>
+
+    {showSessionModal && <div className="modal-backdrop" onClick={() => setShowSessionModal(false)}>
+      <div className="modal-card" onClick={e => e.stopPropagation()}>
+        <div className="modal-header">
+          <div>
+            <p className="eyebrow">Identity & Session</p>
+            <h3>Switch User / Agent Session</h3>
+          </div>
+          <button className="icon-button" onClick={() => setShowSessionModal(false)}><X size={15} /></button>
+        </div>
+        <p className="intro-copy" style={{ fontSize: '13px', marginBottom: '14px' }}>
+          Each user identity gets an isolated spending ledger, dynamic intent, and audit trail.
+        </p>
+        <p className="eyebrow" style={{ margin: '14px 0 6px' }}>Quick Select</p>
+        <div className="modal-presets">
+          {['demo_shopper_01', 'shopper_alice_02', 'procurement_bot_03', 'risk_tester_04'].map(id => (
+            <button 
+              key={id} 
+              className={`modal-preset-btn ${sessionId === id ? 'active' : ''}`}
+              onClick={() => handleSwitchSession(id)}
+            >
+              {id}
+            </button>
+          ))}
+        </div>
+        <p className="eyebrow" style={{ margin: '14px 0 6px' }}>Or Enter Custom User ID</p>
+        <form onSubmit={e => { e.preventDefault(); handleSwitchSession(customSessionInput) }}>
+          <input 
+            type="text" 
+            className="modal-input" 
+            placeholder="e.g. user_bob_finance" 
+            value={customSessionInput}
+            onChange={e => setCustomSessionInput(e.target.value)}
+            autoFocus
+          />
+          <div className="modal-actions">
+            <button type="button" className="quiet-button" onClick={() => setShowSessionModal(false)}>Cancel</button>
+            <button type="submit" className="primary-button" disabled={!customSessionInput.trim()}>Switch User</button>
+          </div>
+        </form>
+      </div>
+    </div>}
 
     <main className="workspace">
       <section className="intro">
@@ -199,7 +271,7 @@ export default function App() {
 
         <aside className="right-column">
           {approvals.length > 0 && <div className="panel approval-panel"><div className="panel-heading compact"><div><p className="eyebrow amber">Action needed</p><h2>Review purchase</h2></div><span className="count-badge">{approvals.length}</span></div>{approvals.map(item => <div className="approval-item" key={item.approval_id}><div className="approval-summary"><strong>{money(item.amount)} purchase</strong><span>{item.arguments?.category || 'Purchase'} · {item.transaction_id.slice(0, 14)}…</span></div><div className="approval-actions"><button onClick={() => void review(item.approval_id, false)} disabled={reviewing === item.approval_id} className="quiet-button">Reject</button><button onClick={() => void review(item.approval_id, true)} disabled={reviewing === item.approval_id} className="approve-button">Approve</button></div></div>)}</div>}
-          <div className="panel activity-panel"><div className="panel-heading compact"><div><p className="eyebrow">Recent activity</p><h2>What happened</h2></div><button className="icon-button" onClick={() => void refresh()} aria-label="Refresh activity"><RefreshCw size={15} /></button></div>{events.length === 0 ? <p className="empty-state">Your first decision will appear here.</p> : <div className="activity-list">{events.map(event => <div className="activity-item" key={event.event_id}><StatusMark decision={event.decision} /><div><strong>{event.decision === 'ALLOW' ? 'Authorized purchase' : event.decision === 'REVIEW' ? 'Waiting for approval' : 'Request blocked'}</strong><span>{event.tool_name} · {new Date(event.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span></div><b>{money(event.arguments?.amount)}</b></div>)}</div>}</div>
+          <div className="panel activity-panel"><div className="panel-heading compact"><div><p className="eyebrow">Recent activity</p><h2>What happened</h2></div><button className="icon-button" onClick={() => void refresh()} aria-label="Refresh activity"><RefreshCw size={15} /></button></div>{events.length === 0 ? <p className="empty-state">Your first decision will appear here.</p> : <div className="activity-list">{events.map(event => <div className="activity-item" key={event.event_id}><StatusMark decision={event.decision} /><div><strong>{event.decision === 'ALLOW' ? 'Authorized purchase' : event.decision === 'REVIEW' ? 'Waiting for approval' : 'Request blocked'}</strong><span>{event.tool_name} · {formatEventTime(event.timestamp)}</span></div><b>{money(event.arguments?.amount)}</b></div>)}</div>}</div>
           <div className="spend-panel"><div className="spend-heading"><div><span>Session spend</span><strong>{money(session?.total_active_spend)}</strong></div><button className="reset-button" onClick={() => void resetSpend()} disabled={resettingSpend} title="Reset current session spend"><RefreshCw size={12} className={resettingSpend ? 'spin' : ''} /> {resettingSpend ? 'Resetting' : 'Reset spend'}</button></div><div className="spend-track"><span style={{ width: `${spendPercent}%` }} /></div><div className="spend-footer"><span>{money(session?.committed_spend)} settled</span><span>{money(session?.policy?.max_session_spend)} limit</span></div></div>
         </aside>
       </section>
