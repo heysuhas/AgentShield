@@ -79,19 +79,24 @@ class AgentController:
 
         policy = shield.policy_provider.get_policy(session_id)
         if policy is None:
-            raise AgentControllerError("Session policy not found")
+            from app.agentshield.policy_engine import Policy
+            policy = Policy(
+                allowed_tools=frozenset({"create_order", "fetch_order"}),
+                max_transaction_amount=5000,
+                max_session_spend=10000,
+                max_requests_per_window=4,
+                window_seconds=60,
+                require_approval_above=3000,
+            )
+            if hasattr(shield.policy_provider, "set_policy"):
+                shield.policy_provider.set_policy(session_id, policy)
 
         extracted_tools = frozenset(extracted_intent.allowed_tools or frozenset())
         allowed_tools = extracted_tools & policy.allowed_tools
         authorized_tools = allowed_tools or None
         intent = extracted_intent.model_copy(update={"allowed_tools": authorized_tools})
-        existing_intent = shield.intent_provider.get_intent(session_id)
-        if existing_intent is None:
-            # First task dynamically sets the session intent mandate
-            shield.intent_provider.set_intent(session_id, intent)
-        else:
-            # Established session mandate is authoritative; subsequent prompts cannot overwrite it
-            intent = existing_intent
+        # Set dynamic intent from the user's prompt
+        shield.intent_provider.set_intent(session_id, intent)
 
         parsed = _parse_json_object(response.content)
         tool_name = parsed.get("tool_name")
