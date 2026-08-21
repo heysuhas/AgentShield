@@ -1,19 +1,7 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" fill="none">
-  <defs>
-    <linearGradient id="shieldGrad" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" stop-color="#00F5D4" />
-      <stop offset="60%" stop-color="#10B981" />
-      <stop offset="100%" stop-color="#059669" />
-    </linearGradient>
-    <linearGradient id="coreGrad" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" stop-color="#132321" />
-      <stop offset="100%" stop-color="#060A0A" />
-    </linearGradient>
-  </defs>
-  <rect width="64" height="64" rx="16" fill="#060909" />
-  <rect width="64" height="64" rx="16" stroke="url(#shieldGrad)" stroke-width="1.5" stroke-opacity="0.35" />
-  <path d="M32 8L50 16V29C50 41.5 42 50.8 32 55C22 50.8 14 41.5 14 29V16L32 8Z" fill="url(#coreGrad)" stroke="url(#shieldGrad)" stroke-width="2.5" stroke-linejoin="round" />
-  <path d="M32 17L43 22.5V30.5C43 38.5 38.2 44.7 32 47.5C25.8 44.7 21 38.5 21 30.5V22.5L32 17Z" fill="#041210" stroke="#00F5D4" stroke-width="1.5" stroke-opacity="0.9" />
-  <circle cx="32" cy="30" r="3.5" fill="#00F5D4" />
-  <path d="M32 33.5V40" stroke="#00F5D4" stroke-width="2.5" stroke-linecap="round" />
+  <rect width="64" height="64" rx="14" fill="#0C0D0E" />
+  <rect width="64" height="64" rx="14" stroke="#26282B" stroke-width="1.5" />
+  <path d="M32 14L48 20.5V31C48 41.5 41 49 32 52C23 49 16 41.5 16 31V20.5L32 14Z" stroke="#E5E7EB" stroke-width="2.5" stroke-linejoin="round" />
+  <circle cx="32" cy="30" r="3" fill="#E5E7EB" />
+  <path d="M32 33V39" stroke="#E5E7EB" stroke-width="2.5" stroke-linecap="round" />
 </svg>
