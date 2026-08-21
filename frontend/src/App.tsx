@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { ArrowRight, Check, ChevronDown, CircleAlert, CircleCheck, Clock3, Loader2, LockKeyhole, RefreshCw, X } from 'lucide-react'
+import { ArrowRight, ChevronDown, CircleAlert, CircleCheck, Clock3, Loader2, LockKeyhole, RefreshCw, X } from 'lucide-react'
 import { approveReview, createOrInitSession, fetchApprovals, fetchAuditEvents, fetchHealth, fetchPaymentConfig, rejectReview, resetSessionSpend, runAgent, verifyPayment } from './api'
 import type { ApprovalRecord, AuditEvent, SessionData } from './types'
 
@@ -43,9 +43,32 @@ function DecisionRail({ decision }: { decision: ReturnType<typeof decisionOf> })
 }
 
 function StatusMark({ decision }: { decision: string | null }) {
-  if (decision === 'ALLOW') return <span className="status-mark allowed"><Check size={13} strokeWidth={2.5} /></span>
-  if (decision === 'REVIEW') return <span className="status-mark review"><Clock3 size={13} strokeWidth={2.5} /></span>
-  return <span className="status-mark blocked"><X size={13} strokeWidth={2.5} /></span>
+  if (decision === 'ALLOW') {
+    return (
+      <span className="status-mark allowed" title="Authorized">
+        <svg viewBox="0 0 16 16" fill="none" className="status-icon">
+          <path d="M3.5 8.5L6.5 11.5L12.5 4.5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+        </svg>
+      </span>
+    )
+  }
+  if (decision === 'REVIEW') {
+    return (
+      <span className="status-mark review" title="Review Required">
+        <svg viewBox="0 0 16 16" fill="none" className="status-icon">
+          <circle cx="8" cy="8" r="5.5" stroke="currentColor" strokeWidth="1.75" />
+          <path d="M8 5V8L10 9.5" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" />
+        </svg>
+      </span>
+    )
+  }
+  return (
+    <span className="status-mark blocked" title="Blocked">
+      <svg viewBox="0 0 16 16" fill="none" className="status-icon">
+        <path d="M4.5 4.5L11.5 11.5M11.5 4.5L4.5 11.5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+      </svg>
+    </span>
+  )
 }
 function formatEventTime(timestamp: string | Date | undefined) {
   if (!timestamp) return 'Just now'
@@ -267,15 +290,15 @@ function AgentShieldLogo() {
     <main className="workspace">
       <section className="intro">
         <div>
-          <p className="eyebrow">Agent Spending & Intent Policy</p>
-          <h1>Autonomous Agent Control.<br /><em>Deterministic Financial Authorization.</em></h1>
-          <p className="intro-copy">Specify high-level financial objectives. AgentShield verifies semantic intent and deterministic policy constraints before payment execution.</p>
+          <p className="eyebrow">Authorization & Risk Layer</p>
+          <h1>Let the agent ask.<br /><em>Keep the decision yours.</em></h1>
+          <p className="intro-copy">Describe what you want to buy. AgentShield checks the request against your intent and spending rules before any payment is created.</p>
         </div>
         <div className="policy-note">
           <LockKeyhole size={15} />
           <div>
-            <strong>Session Enforcement</strong>
-            <span>{money(session?.policy?.max_transaction_amount)} per txn · {money(session?.policy?.max_session_spend)} session cap</span>
+            <strong>Session rules</strong>
+            <span>{money(session?.policy?.max_transaction_amount)} per purchase · {money(session?.policy?.max_session_spend)} total</span>
           </div>
         </div>
       </section>
@@ -287,30 +310,22 @@ function AgentShieldLogo() {
           <div className="panel request-panel">
             <div className="panel-heading">
               <div>
-                <p className="eyebrow">Agent Dispatch</p>
-                <h2>Transaction Dispatch</h2>
+                <p className="eyebrow">Your request</p>
+                <h2>What do you want to buy?</h2>
               </div>
               <span className="model-label">{health?.model || 'openai/gpt-oss-20b'}</span>
             </div>
             <div className="prompt-container">
-              <div className="prompt-header">
-                <div className="prompt-header-left">
-                  <span className="prompt-indicator" />
-                  <span className="prompt-header-text">TRANSACTION INSTRUCTION</span>
-                </div>
-                <span className="prompt-shortcut">⌘ + Enter</span>
-              </div>
               <textarea 
                 className="prompt-textarea"
                 value={prompt} 
                 onChange={event => setPrompt(event.target.value)} 
                 onKeyDown={event => { if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) void submit() }} 
-                placeholder="e.g. Buy running shoes for ₹1,500..." 
+                placeholder="Buy running shoes for ₹1,500" 
                 rows={3} 
               />
               <div className="prompt-bar">
                 <div className="examples">
-                  <span className="examples-label">Scenarios:</span>
                   {EXAMPLES.map(example => (
                     <button key={example.label} onClick={() => setPrompt(example.value)} className="example-button">
                       {example.label}
@@ -318,18 +333,18 @@ function AgentShieldLogo() {
                   ))}
                 </div>
                 <button className="primary-button" onClick={() => void submit()} disabled={loading || !prompt.trim()}>
-                  {loading ? <><Loader2 size={15} className="spin" /> Evaluating...</> : <>Evaluate & Dispatch <ArrowRight size={14} /></>}
+                  {loading ? <><Loader2 size={15} className="spin" /> Checking</> : <>Check request <ArrowRight size={14} /></>}
                 </button>
               </div>
             </div>
-            <p className="hint">Agent tool calls are treated as untrusted proposals and verified against deterministic policies.</p>
+            <p className="hint">Press ⌘ Enter to submit · The agent can propose, but it cannot authorize.</p>
           </div>
 
           {result && decision && <div className={`panel decision-panel ${decision.toLowerCase()}`}>
             <div className="decision-heading">
               <StatusMark decision={decision} />
               <div>
-                <p className="eyebrow">AgentShield Authorization</p>
+                <p className="eyebrow">AgentShield decision</p>
                 <h2>{statusCopy[decision].title}</h2>
               </div>
               <span className="decision-word">{decision}</span>
