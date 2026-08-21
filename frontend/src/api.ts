@@ -10,7 +10,7 @@ export async function fetchHealth(): Promise<{
   model?: string;
   environment?: string;
 }> {
-  const res = await fetch('/health');
+  const res = await fetch(`${API_BASE}/health`);
   return res.json();
 }
 

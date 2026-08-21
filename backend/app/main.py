@@ -52,6 +52,7 @@ app.include_router(payments_router, prefix="/api/v1")
 
 
 @app.get("/health")
+@app.get("/api/v1/health")
 def health():
     settings = get_settings()
     has_rzp = bool(settings.RAZORPAY_KEY_ID and settings.RAZORPAY_KEY_SECRET)
