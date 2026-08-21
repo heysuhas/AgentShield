@@ -30,28 +30,10 @@ class MockLLMProvider:
         )
 
     def extract_intent(self, user_prompt: str) -> AuthorizedIntent:
-        """Extract intent from user instructions using rule-based heuristic parsing."""
+        """Extract intent from user instructions dynamically."""
         prompt_lower = user_prompt.lower()
 
-        # 1. Category heuristics
-        category = None
-        if any(w in prompt_lower for w in ["shoe", "sneaker", "footwear", "running shoes"]):
-            category = "footwear"
-        elif any(w in prompt_lower for w in ["laptop", "phone", "headphone", "electronics"]):
-            category = "electronics"
-        elif any(w in prompt_lower for w in ["book", "novel"]):
-            category = "books"
-        elif "gift card" in prompt_lower:
-            category = "gift_card"
-
-        # 2. Purpose heuristics
-        purpose = None
-        if "running" in prompt_lower:
-            purpose = "running shoes"
-        elif "office" in prompt_lower or "work" in prompt_lower:
-            purpose = "work"
-
-        # 3. Amount extraction
+        # 1. Amount extraction
         max_amount = None
         amount_match = re.search(r"(?:under|below|max|upto|up to|₹|rs\.?|inr)?\s*₹?\s*(\d+[\d,]*)", prompt_lower)
         if amount_match:
@@ -59,7 +41,26 @@ class MockLLMProvider:
             if digits.isdigit():
                 max_amount = int(digits)
 
-        # 4. Currency
+        # 2. Category & Purpose Extraction
+        cleaned = re.sub(r"\b(?:buy|purchase|get|order|for|under|below|max|upto|up to|inr|rs|a|an|the|please)\b", " ", prompt_lower)
+        cleaned = re.sub(r"[₹$,\d]", " ", cleaned).strip()
+        words = [w for w in cleaned.split() if len(w) > 1]
+        
+        category = None
+        if any(w in prompt_lower for w in ["shoe", "sneaker", "footwear", "running shoes"]):
+            category = "footwear"
+        elif any(w in prompt_lower for w in ["laptop", "phone", "headphone", "keyboard", "monitor", "electronics"]):
+            category = "electronics"
+        elif any(w in prompt_lower for w in ["book", "novel"]):
+            category = "books"
+        elif "gift card" in prompt_lower:
+            category = "gift_card"
+        else:
+            category = words[0] if words else "general"
+
+        purpose = "running shoes" if "running" in prompt_lower else (" ".join(words) if words else "purchase")
+
+        # 3. Currency
         currency = "USD" if "$" in user_prompt or "usd" in prompt_lower else "INR"
 
         return AuthorizedIntent(

@@ -52,7 +52,7 @@ class NvidiaNIMProvider:
         self,
         api_key: str | None = None,
         base_url: str = "https://integrate.api.nvidia.com/v1",
-        model: str = "meta/llama-3.3-70b-instruct",
+        model: str = "openai/gpt-oss-20b",
         timeout_seconds: float = 90.0,
         client: httpx.Client | None = None,
     ) -> None:
@@ -92,7 +92,7 @@ class NvidiaNIMProvider:
             "messages": [m.model_dump() for m in messages],
             "temperature": temperature,
             "top_p": 0.7,
-            "max_tokens": 512,
+            "max_tokens": 1024,
         }
         if response_format is not None:
             payload["response_format"] = response_format
@@ -115,6 +115,8 @@ class NvidiaNIMProvider:
         try:
             message = data["choices"][0]["message"]
             content = message.get("content")
+            if not content:
+                content = message.get("reasoning_content") or message.get("reasoning")
             model_name = data.get("model", self.model)
         except (KeyError, IndexError, AttributeError) as exc:
             raise LLMResponseParsingError(
@@ -122,7 +124,7 @@ class NvidiaNIMProvider:
             ) from exc
         if not isinstance(content, str) or not content.strip():
             raise LLMResponseParsingError(
-                "NVIDIA NIM returned no assistant content; disable reasoning or choose a non-reasoning model"
+                "NVIDIA NIM returned empty content"
             )
 
         return LLMResponse(

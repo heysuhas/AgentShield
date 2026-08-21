@@ -68,12 +68,12 @@ def test_nvidia_provider_missing_key_raises_auth_error() -> None:
 def test_nvidia_provider_chat_complete_with_mocked_http() -> None:
     def custom_transport(request: httpx.Request) -> httpx.Response:
         data = json.loads(request.content)
-        assert data["model"] == "meta/llama-3.3-70b-instruct"
+        assert data["model"] == "openai/gpt-oss-20b"
         assert request.headers["Authorization"] == "Bearer test_key_123"
 
         response_payload = {
             "id": "chatcmpl-test",
-            "model": "meta/llama-3.3-70b-instruct",
+            "model": "openai/gpt-oss-20b",
             "choices": [
                 {
                     "index": 0,
@@ -91,7 +91,7 @@ def test_nvidia_provider_chat_complete_with_mocked_http() -> None:
 
     response = provider.chat_complete([LLMMessage(role="user", content="Hi")])
     assert response.content == "Hello from NVIDIA NIM!"
-    assert response.model == "meta/llama-3.3-70b-instruct"
+    assert response.model == "openai/gpt-oss-20b"
 
 
 def test_nvidia_provider_extract_intent_with_mocked_http() -> None:
