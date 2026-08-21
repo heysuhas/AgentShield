@@ -45,30 +45,30 @@ function DecisionRail({ decision }: { decision: ReturnType<typeof decisionOf> })
 function StatusMark({ decision }: { decision: string | null }) {
   if (decision === 'ALLOW') {
     return (
-      <span className="status-mark allowed" title="Authorized">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="status-svg">
+      <div className="status-mark allowed" title="Authorized" aria-hidden="true">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.75" strokeLinecap="round" strokeLinejoin="round" className="status-svg">
           <polyline points="20 6 9 17 4 12" />
         </svg>
-      </span>
+      </div>
     )
   }
   if (decision === 'REVIEW') {
     return (
-      <span className="status-mark review" title="Review Required">
+      <div className="status-mark review" title="Review Required" aria-hidden="true">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="status-svg">
-          <circle cx="12" cy="12" r="9" />
-          <polyline points="12 7 12 12 15 15" />
+          <circle cx="12" cy="12" r="8.5" />
+          <polyline points="12 7.5 12 12 15 14" />
         </svg>
-      </span>
+      </div>
     )
   }
   return (
-    <span className="status-mark blocked" title="Blocked">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="status-svg">
+    <div className="status-mark blocked" title="Blocked" aria-hidden="true">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.75" strokeLinecap="round" strokeLinejoin="round" className="status-svg">
         <line x1="18" y1="6" x2="6" y2="18" />
         <line x1="6" y1="6" x2="18" y2="18" />
       </svg>
-    </span>
+    </div>
   )
 }
 function formatEventTime(timestamp: string | Date | undefined) {

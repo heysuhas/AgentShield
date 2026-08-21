@@ -43,7 +43,7 @@ h2 {
   margin: 0;
 }
 
-code, .eyebrow, .model-label, .session-chip-button, .proposal, .json-view, .rail-step, .policy-note span, .activity-item span, .activity-item b, .spend-panel span, .spend-footer, .brand-tag, .count-badge, .status-mark {
+code, .eyebrow, .model-label, .session-chip-button, .proposal, .json-view, .rail-step, .policy-note span, .activity-item span, .activity-item b, .spend-panel span, .spend-footer, .brand-tag, .count-badge {
   font-family: 'JetBrains Mono', monospace;
 }
 
@@ -358,12 +358,12 @@ code, .eyebrow, .model-label, .session-chip-button, .proposal, .json-view, .rail
 .icon-button { display: grid; place-items: center; color: #6b7280; background: transparent; border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 5px; padding: 5px; } 
 .icon-button:hover { color: #f3f4f6; border-color: rgba(255, 255, 255, 0.2); } 
 .activity-list { display: grid; gap: 4px; max-height: 320px; overflow-y: auto; padding-right: 4px; } 
-.activity-item { display: grid; grid-template-columns: 22px minmax(0, 1fr) auto; gap: 10px; align-items: center; min-width: 0; padding: 7px 9px; border-radius: 6px; border: 1px solid transparent; transition: all 0.2s ease; } 
+.activity-item { display: flex; align-items: center; gap: 12px; min-width: 0; padding: 8px 10px; border-radius: 6px; border: 1px solid transparent; transition: all 0.2s ease; } 
 .activity-item:hover { background: rgba(255, 255, 255, 0.025); border-color: rgba(255, 255, 255, 0.05); }
-.activity-item div { display: grid; gap: 2px; min-width: 0; } 
+.activity-item > div { display: grid; gap: 2px; min-width: 0; flex: 1 1 auto; } 
 .activity-item strong { font-size: 11.5px; font-weight: 500; color: #f3f4f6; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; } 
 .activity-item span { color: #6b7280; font: 9.5px 'JetBrains Mono', monospace; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: block; } 
-.activity-item b { color: #e5e7eb; font-weight: 600; font: 11.5px 'JetBrains Mono', monospace; white-space: nowrap; margin-left: 6px; letter-spacing: -0.02em; } 
+.activity-item b { color: #e5e7eb; font-weight: 600; font: 11.5px 'JetBrains Mono', monospace; white-space: nowrap; margin-left: auto; letter-spacing: -0.02em; flex-shrink: 0; } 
 .empty-state { color: #4b5563; font-size: 12px; margin: 30px 0 10px; text-align: center; }
 
 /* Spend Panel with Proper Spacing */
