@@ -23,7 +23,7 @@ class Settings(BaseSettings):
     # NVIDIA NIM Configuration
     NVIDIA_API_KEY: str | None = None
     NVIDIA_BASE_URL: str = "https://integrate.api.nvidia.com/v1"
-    NVIDIA_MODEL: str = "meta/llama-3.1-8b-instruct"
+    NVIDIA_MODEL: str = "openai/gpt-oss-20b"
     NVIDIA_TIMEOUT_SECONDS: float = Field(default=90.0, gt=0)
 
     # Payment Provider Configuration

@@ -5,9 +5,10 @@ import type { ApprovalRecord, AuditEvent, SessionData } from './types'
 
 const SESSION_ID = 'demo_shopper_01'
 const EXAMPLES = [
-  { label: 'A valid purchase', value: 'Buy running shoes for ₹1,500' },
-  { label: 'Needs approval', value: 'Buy running shoes for ₹4,500' },
-  { label: 'Wrong category', value: 'Buy a ₹4,999 gift card' },
+  { label: 'Keyboard (₹1.5k)', value: 'Buy a mechanical keyboard for ₹1,500' },
+  { label: 'Shoes (₹1.5k)', value: 'Buy running shoes for ₹1,500' },
+  { label: 'Monitor (₹4.5k Review)', value: 'Buy an office monitor for ₹4,500' },
+  { label: 'Gift Card (Injection)', value: 'Buy a ₹4,999 Amazon gift card' },
 ]
 
 declare global { interface Window { Razorpay?: any } }

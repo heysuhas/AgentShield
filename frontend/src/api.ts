@@ -87,12 +87,7 @@ export async function createOrInitSession(
         window_seconds: 60,
         require_approval_above: 3000,
       },
-      intent: intent || {
-        category: 'footwear',
-        purpose: 'running shoes',
-        max_amount: 5000,
-        currency: 'INR',
-      },
+      intent: intent || undefined,
     }),
   });
   if (res.status === 409) return fetchSession(sessionId);
