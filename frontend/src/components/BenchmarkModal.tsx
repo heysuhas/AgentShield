@@ -26,6 +26,26 @@ export function BenchmarkModal({
 }: BenchmarkModalProps) {
   const [activeFilter, setActiveFilter] = useState<'ALL' | 'ADVERSARIAL' | 'BENIGN'>('ALL')
   const [searchQuery, setSearchQuery] = useState('')
+  const [localRunning, setLocalRunning] = useState(false)
+  const [localError, setLocalError] = useState<string | null>(null)
+  const [lastRunSuccess, setLastRunSuccess] = useState(false)
+
+  const isBusy = loading || localRunning
+
+  const handleRunSimulation = async () => {
+    setLocalRunning(true)
+    setLocalError(null)
+    setLastRunSuccess(false)
+    try {
+      await onRunLive()
+      setLastRunSuccess(true)
+      setTimeout(() => setLastRunSuccess(false), 4000)
+    } catch (err: any) {
+      setLocalError(err.message || 'Failed to complete benchmark simulation')
+    } finally {
+      setLocalRunning(false)
+    }
+  }
 
   const filteredCases = (report?.case_results || []).filter(item => {
     if (activeFilter === 'ADVERSARIAL' && !item.is_adversarial) return false
@@ -43,11 +63,11 @@ export function BenchmarkModal({
 
   return (
     <div className="modal-backdrop" onClick={e => { if (e.target === e.currentTarget) onClose() }}>
-      <div className="modal-card benchmark-modal-card">
+      <div className="modal-card benchmark-modal-card neo-brutalist-card">
         {/* Header */}
-        <div className="modal-header">
+        <div className="modal-header neo-brutalist-header">
           <div>
-            <span className="benchmark-track-badge">TRACK 02 · AI RISK MANAGER EVALUATION</span>
+            <div className="benchmark-track-badge neo-badge yellow">TRACK 02 · AI RISK MANAGER EVALUATION</div>
             <h2 className="benchmark-title">Risk Model Benchmark & Held-Out Metrics</h2>
             <p className="benchmark-subtitle">
               Measured precision, recall, and false-positive financial cost across {report?.total_cases || 130} held-out test scenarios.
@@ -55,56 +75,72 @@ export function BenchmarkModal({
           </div>
           <div className="benchmark-header-actions">
             <button
-              className="benchmark-run-btn"
-              onClick={() => void onRunLive()}
-              disabled={loading}
+              className="benchmark-run-btn neo-button yellow"
+              onClick={() => void handleRunSimulation()}
+              disabled={isBusy}
               title="Re-execute the 130 test cases against AgentShield live"
             >
-              {loading ? (
-                <><Loader2 size={13} className="spin" /> Running Suite...</>
+              {isBusy ? (
+                <><Loader2 size={13} className="spin" /> Simulating Suite...</>
               ) : (
-                <><Play size={12} /> Run Live Evaluation</>
+                <><Play size={12} /> Run Live Simulation</>
               )}
             </button>
-            <button className="icon-button" onClick={onClose} aria-label="Close benchmark">
+            <button className="icon-button neo-icon-btn" onClick={onClose} aria-label="Close benchmark">
               <X size={15} />
             </button>
           </div>
         </div>
 
+        {/* Status Banners */}
+        {localError && (
+          <div className="error-banner neo-brutalist-alert red">
+            <CircleAlert size={16} />
+            <span>Simulation error: {localError}</span>
+            <button onClick={() => setLocalError(null)}><X size={13} /></button>
+          </div>
+        )}
+
+        {lastRunSuccess && (
+          <div className="neo-brutalist-alert green">
+            <Check size={16} />
+            <span>Successfully re-evaluated all {report?.total_cases || 130} test scenarios live through AgentShield.</span>
+          </div>
+        )}
+
         {/* Top Scorecard Grid */}
         <div className="benchmark-kpi-grid">
-          <div className="benchmark-kpi-card highlight">
+          <div className="benchmark-kpi-card neo-brutalist-kpi highlight">
             <span className="kpi-label">Precision (PPV)</span>
             <strong className="kpi-value">{report ? `${(report.precision * 100).toFixed(1)}%` : '—'}</strong>
-            <span className="kpi-desc">Zero false-accusation rate</span>
+            <span className="kpi-desc">Zero false alarms</span>
           </div>
 
-          <div className="benchmark-kpi-card highlight">
+          <div className="benchmark-kpi-card neo-brutalist-kpi highlight">
             <span className="kpi-label">Recall / Sensitivity</span>
             <strong className="kpi-value">{report ? `${(report.recall * 100).toFixed(1)}%` : '—'}</strong>
             <span className="kpi-desc">Adversarial catch rate</span>
           </div>
 
-          <div className="benchmark-kpi-card">
+          <div className="benchmark-kpi-card neo-brutalist-kpi">
             <span className="kpi-label">F1-Score</span>
             <strong className="kpi-value">{report ? report.f1_score.toFixed(3) : '—'}</strong>
             <span className="kpi-desc">Harmonic accuracy mean</span>
           </div>
 
-          <div className="benchmark-kpi-card emerald">
+          <div className="benchmark-kpi-card neo-brutalist-kpi emerald">
             <span className="kpi-label">Total Loss Prevented</span>
             <strong className="kpi-value emerald">{money(report?.total_loss_prevented_inr)}</strong>
             <span className="kpi-desc">Adversarial volume blocked</span>
           </div>
 
-          <div className="benchmark-kpi-card">
+          <div className="benchmark-kpi-card neo-brutalist-kpi">
             <span className="kpi-label">False-Positive Friction</span>
             <strong className="kpi-value">{money(report?.false_positive_friction_cost_inr)}</strong>
-            <span className="kpi-desc">15% margin friction impact</span>
+            <span className="kpi-desc">15% margin impact</span>
           </div>
 
-          <div className="benchmark-kpi-card gold">
+          <div className="benchmark-kpi-card neo-brutalist-kpi gold">
             <span className="kpi-label">Net Financial ROI</span>
             <strong className="kpi-value gold">{money(report?.net_financial_roi_inr)}</strong>
             <span className="kpi-desc">Net loss saved for merchant</span>
@@ -114,13 +150,13 @@ export function BenchmarkModal({
         {/* Middle Section: Confusion Matrix & Financial Ledger */}
         <div className="benchmark-mid-grid">
           {/* 2x2 Confusion Matrix */}
-          <div className="benchmark-subpanel">
+          <div className="benchmark-subpanel neo-brutalist-panel">
             <div className="subpanel-header">
-              <span className="subpanel-tag">CLASSIFICATION MATRIX</span>
+              <span className="subpanel-tag neo-badge">CLASSIFICATION MATRIX</span>
               <h4>Empirical Confusion Matrix</h4>
             </div>
             <div className="confusion-matrix-grid">
-              <div className="matrix-cell tp">
+              <div className="matrix-cell tp neo-cell">
                 <div className="matrix-cell-header">
                   <ShieldAlert size={14} />
                   <span>True Positives (TP)</span>
@@ -129,7 +165,7 @@ export function BenchmarkModal({
                 <p>Adversarial attacks correctly BLOCKED</p>
               </div>
 
-              <div className="matrix-cell fp">
+              <div className="matrix-cell fp neo-cell">
                 <div className="matrix-cell-header">
                   <CircleAlert size={14} />
                   <span>False Positives (FP)</span>
@@ -138,7 +174,7 @@ export function BenchmarkModal({
                 <p>Legitimate orders falsely BLOCKED</p>
               </div>
 
-              <div className="matrix-cell fn">
+              <div className="matrix-cell fn neo-cell">
                 <div className="matrix-cell-header">
                   <CircleAlert size={14} />
                   <span>False Negatives (FN)</span>
@@ -147,7 +183,7 @@ export function BenchmarkModal({
                 <p>Adversarial attacks MISSED</p>
               </div>
 
-              <div className="matrix-cell tn">
+              <div className="matrix-cell tn neo-cell">
                 <div className="matrix-cell-header">
                   <ShieldCheck size={14} />
                   <span>True Negatives (TN)</span>
@@ -159,13 +195,13 @@ export function BenchmarkModal({
           </div>
 
           {/* Vector Breakdown Table */}
-          <div className="benchmark-subpanel">
+          <div className="benchmark-subpanel neo-brutalist-panel">
             <div className="subpanel-header">
-              <span className="subpanel-tag">RISK VECTORS</span>
+              <span className="subpanel-tag neo-badge">RISK VECTORS</span>
               <h4>Breakdown by Loss Class</h4>
             </div>
             <div className="vector-table-container">
-              <table className="vector-table">
+              <table className="vector-table neo-table">
                 <thead>
                   <tr>
                     <th>Vector Category</th>
@@ -183,7 +219,7 @@ export function BenchmarkModal({
                       </td>
                       <td>{v.total_samples}</td>
                       <td>
-                        <span className="accuracy-pill">
+                        <span className="accuracy-pill neo-pill green">
                           {(v.accuracy * 100).toFixed(0)}%
                         </span>
                       </td>
@@ -202,28 +238,28 @@ export function BenchmarkModal({
         </div>
 
         {/* Case Results Explorer */}
-        <div className="benchmark-subpanel cases-subpanel">
+        <div className="benchmark-subpanel cases-subpanel neo-brutalist-panel">
           <div className="cases-header">
             <div>
-              <span className="subpanel-tag">TEST CASE AUDIT TRAIL</span>
+              <span className="subpanel-tag neo-badge">TEST CASE AUDIT TRAIL</span>
               <h4>Evaluated Scenarios ({filteredCases.length})</h4>
             </div>
             <div className="cases-controls">
               <div className="filter-pill-group">
                 <button
-                  className={`filter-pill ${activeFilter === 'ALL' ? 'active' : ''}`}
+                  className={`filter-pill neo-filter-btn ${activeFilter === 'ALL' ? 'active' : ''}`}
                   onClick={() => setActiveFilter('ALL')}
                 >
                   All ({report?.total_cases ?? 0})
                 </button>
                 <button
-                  className={`filter-pill ${activeFilter === 'ADVERSARIAL' ? 'active' : ''}`}
+                  className={`filter-pill neo-filter-btn ${activeFilter === 'ADVERSARIAL' ? 'active' : ''}`}
                   onClick={() => setActiveFilter('ADVERSARIAL')}
                 >
                   Adversarial ({report?.adversarial_cases ?? 0})
                 </button>
                 <button
-                  className={`filter-pill ${activeFilter === 'BENIGN' ? 'active' : ''}`}
+                  className={`filter-pill neo-filter-btn ${activeFilter === 'BENIGN' ? 'active' : ''}`}
                   onClick={() => setActiveFilter('BENIGN')}
                 >
                   Benign ({report?.benign_cases ?? 0})
@@ -231,8 +267,8 @@ export function BenchmarkModal({
               </div>
               <input
                 type="text"
-                className="case-search-input"
-                placeholder="Filter by description or vector..."
+                className="case-search-input neo-search-input"
+                placeholder="Filter by description, prompt, or vector..."
                 value={searchQuery}
                 onChange={e => setSearchQuery(e.target.value)}
               />
@@ -241,12 +277,12 @@ export function BenchmarkModal({
 
           <div className="cases-scroll-list">
             {filteredCases.slice(0, 35).map(c => (
-              <div className="benchmark-case-item" key={c.case_id}>
+              <div className="benchmark-case-item neo-case-item" key={c.case_id}>
                 <div className="case-status-badge">
                   {c.is_correct ? (
-                    <span className="case-badge pass"><Check size={11} /> {c.classification}</span>
+                    <span className="case-badge neo-badge green"><Check size={11} /> {c.classification}</span>
                   ) : (
-                    <span className="case-badge fail"><X size={11} /> {c.classification}</span>
+                    <span className="case-badge neo-badge red"><X size={11} /> {c.classification}</span>
                   )}
                 </div>
                 <div className="case-details">
@@ -258,7 +294,7 @@ export function BenchmarkModal({
                   <p className="case-desc">{c.description}</p>
                 </div>
                 <div className="case-outcome">
-                  <span className={`case-decision ${c.actual_decision.toLowerCase()}`}>
+                  <span className={`case-decision neo-pill ${c.actual_decision.toLowerCase()}`}>
                     {c.actual_decision}
                   </span>
                   <span className="case-risk-pct">Risk {(c.risk_score * 100).toFixed(0)}%</span>
@@ -276,7 +312,7 @@ export function BenchmarkModal({
         {/* Footer */}
         <div className="benchmark-modal-footer">
           <span className="dataset-tag">Dataset: {report?.dataset_version} · Defense-Only Architecture</span>
-          <button className="quiet-button" onClick={onClose}>Close Benchmark</button>
+          <button className="quiet-button neo-button-ghost" onClick={onClose}>Close Benchmark</button>
         </div>
       </div>
     </div>

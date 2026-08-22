@@ -144,7 +144,9 @@ export default function App() {
   const execution = executionOf(result)
   const order = orderOf(result)
   const isRazorpay = paymentConfig?.provider === 'razorpay' && Boolean(paymentConfig?.key_id)
-  const spendPercent = session?.policy?.max_session_spend ? Math.min(100, (session.total_active_spend / session.policy.max_session_spend) * 100) : 0
+  const spendPercent = (session?.policy?.max_session_spend && session?.policy?.max_session_spend > 0)
+    ? Math.min(100, Math.max(0, ((session.total_active_spend || 0) / session.policy.max_session_spend) * 100))
+    : 0
   const statusCopy = useMemo(() => ({
     ALLOW: { title: 'Transaction Authorized', body: 'The proposed tool call matched user intent and satisfied all deterministic security policies.' },
     REVIEW: { title: 'Manual Approval Required', body: 'Transaction exceeds standard threshold. Funds reserved pending operator review.' },
@@ -216,15 +218,29 @@ export default function App() {
     finally { setResettingSpend(false) }
   }
 
-  const handleSwitchSession = (newId: string) => {
+  const handleSwitchSession = async (newId: string) => {
     const trimmed = newId.trim()
     if (!trimmed) return
     setSessionId(trimmed)
     setResult(null)
+    setEvents([])
+    setApprovals([])
     setError(null)
     setPaymentMessage(null)
     setShowSessionModal(false)
     setCustomSessionInput('')
+    try {
+      const nextSession = await createOrInitSession(trimmed)
+      setSession(nextSession)
+      const [audit, pending] = await Promise.all([
+        fetchAuditEvents(trimmed, undefined, undefined, 8).catch(() => ({ total: 0, items: [] })),
+        fetchApprovals(trimmed, 'PENDING', 10).catch(() => ({ total: 0, items: [] })),
+      ])
+      setEvents(audit.items || [])
+      setApprovals(pending.items || [])
+    } catch (cause: any) {
+      setError(cause.message || 'Could not load session workspace')
+    }
   }
 
 function AgentShieldLogo() {
