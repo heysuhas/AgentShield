@@ -247,3 +247,24 @@ export async function runAgent(
   }
   return body;
 }
+
+export async function fetchBenchmarkSummary(): Promise<any> {
+  const res = await fetch(`${API_BASE}/benchmark/summary`);
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(body.detail || `Failed to fetch benchmark summary (${res.status})`);
+  }
+  return res.json();
+}
+
+export async function runLiveBenchmark(): Promise<any> {
+  const res = await fetch(`${API_BASE}/benchmark/run`, {
+    method: 'POST',
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(body.detail || `Failed to run live benchmark (${res.status})`);
+  }
+  return res.json();
+}
+

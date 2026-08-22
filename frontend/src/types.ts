@@ -111,3 +111,54 @@ export interface SessionData {
   reserved_spend: number;
   total_active_spend: number;
 }
+
+export interface VectorMetric {
+  vector_name: string;
+  total_samples: number;
+  passed_cases: number;
+  failed_cases: number;
+  accuracy: number;
+  loss_prevented_inr: number;
+  avg_risk_score: number;
+}
+
+export interface EvaluatedCase {
+  case_id: string;
+  risk_vector: string;
+  description: string;
+  amount: number;
+  expected_decision: string;
+  actual_decision: string;
+  risk_score: number;
+  risk_level: string;
+  reasons: string[];
+  is_correct: boolean;
+  is_adversarial: boolean;
+  classification: 'TP' | 'TN' | 'FP' | 'FN';
+}
+
+export interface BenchmarkReport {
+  timestamp: string;
+  dataset_version: string;
+  total_cases: number;
+  adversarial_cases: number;
+  benign_cases: number;
+  true_positives: number;
+  true_negatives: number;
+  false_positives: number;
+  false_negatives: number;
+  accuracy: number;
+  precision: number;
+  recall: number;
+  specificity: number;
+  f1_score: number;
+  false_positive_rate: number;
+  false_negative_rate: number;
+  total_adversarial_volume_inr: number;
+  total_loss_prevented_inr: number;
+  false_positive_gmv_inr: number;
+  false_positive_friction_cost_inr: number;
+  net_financial_roi_inr: number;
+  vector_breakdown: VectorMetric[];
+  case_results: EvaluatedCase[];
+}

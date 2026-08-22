@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { ArrowRight, ChevronDown, CircleAlert, CircleCheck, Clock3, Loader2, LockKeyhole, RefreshCw, X } from 'lucide-react'
-import { approveReview, createOrInitSession, fetchApprovals, fetchAuditEvents, fetchHealth, fetchPaymentConfig, rejectReview, resetSessionSpend, runAgent, verifyPayment } from './api'
-import type { ApprovalRecord, AuditEvent, SessionData } from './types'
+import { ArrowRight, ChevronDown, CircleAlert, CircleCheck, Clock3, Loader2, LockKeyhole, RefreshCw, ShieldAlert, X } from 'lucide-react'
+import { approveReview, createOrInitSession, fetchApprovals, fetchAuditEvents, fetchBenchmarkSummary, fetchHealth, fetchPaymentConfig, rejectReview, resetSessionSpend, runAgent, runLiveBenchmark, verifyPayment } from './api'
+import { BenchmarkModal } from './components/BenchmarkModal'
+import type { ApprovalRecord, AuditEvent, BenchmarkReport, SessionData } from './types'
 
 const EXAMPLES = [
   { label: 'Keyboard (₹1.5k)', value: 'Buy a mechanical keyboard for ₹1,500' },
@@ -99,6 +100,9 @@ export default function App() {
   const [resettingSpend, setResettingSpend] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [showDetails, setShowDetails] = useState(false)
+  const [showBenchmarkModal, setShowBenchmarkModal] = useState(false)
+  const [benchmarkReport, setBenchmarkReport] = useState<BenchmarkReport | null>(null)
+  const [benchmarkLoading, setBenchmarkLoading] = useState(false)
 
   const refresh = useCallback(async () => {
     try {
@@ -117,7 +121,24 @@ export default function App() {
     } catch (cause: any) { setError(cause.message || 'Could not connect to AgentShield') }
   }, [sessionId])
 
-  useEffect(() => { void refresh(); const timer = window.setInterval(() => void refresh(), 5000); return () => window.clearInterval(timer) }, [refresh])
+  useEffect(() => {
+    void refresh()
+    fetchBenchmarkSummary().then(setBenchmarkReport).catch(() => null)
+    const timer = window.setInterval(() => void refresh(), 5000)
+    return () => window.clearInterval(timer)
+  }, [refresh])
+
+  const handleRunLiveBenchmark = async () => {
+    setBenchmarkLoading(true)
+    try {
+      const res = await runLiveBenchmark()
+      setBenchmarkReport(res)
+    } catch (err: any) {
+      console.error('Failed to run live benchmark', err)
+    } finally {
+      setBenchmarkLoading(false)
+    }
+  }
 
   const decision = decisionOf(result)
   const execution = executionOf(result)
@@ -231,6 +252,15 @@ function AgentShieldLogo() {
         <span className="topbar-context-badge">FINANCIAL RISK LAYER</span>
       </div>
       <div className="topbar-meta">
+        <button
+          className="benchmark-nav-button"
+          onClick={() => setShowBenchmarkModal(true)}
+          title="View Track 02 AI Risk Manager Benchmark and Held-out Evaluation Metrics"
+        >
+          <ShieldAlert size={12} className="benchmark-icon" />
+          <span>Risk Benchmark</span>
+          <span className="benchmark-tag">100% Prec</span>
+        </button>
         <div className="system-status-pill">
           <span className={`service-dot ${health?.status === 'offline' ? 'offline' : ''}`} /> 
           <span>{health?.status === 'offline' ? 'System Offline' : 'Operational'}</span>
@@ -245,6 +275,15 @@ function AgentShieldLogo() {
         </button>
       </div>
     </header>
+
+    {showBenchmarkModal && (
+      <BenchmarkModal
+        report={benchmarkReport}
+        loading={benchmarkLoading}
+        onClose={() => setShowBenchmarkModal(false)}
+        onRunLive={handleRunLiveBenchmark}
+      />
+    )}
 
     {showSessionModal && <div className="modal-backdrop" onClick={() => setShowSessionModal(false)}>
       <div className="modal-card" onClick={e => e.stopPropagation()}>

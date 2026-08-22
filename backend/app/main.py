@@ -6,6 +6,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.api.v1.agent import router as agent_router
 from app.api.v1.approvals import router as approvals_router
 from app.api.v1.audit import router as audit_router
+from app.api.v1.benchmark import router as benchmark_router
 from app.api.v1.payments import router as payments_router
 from app.api.v1.sessions import router as sessions_router
 from app.api.v1.tools import router as tools_router
@@ -49,6 +50,7 @@ app.include_router(transactions_router, prefix="/api/v1")
 app.include_router(approvals_router, prefix="/api/v1")
 app.include_router(agent_router, prefix="/api/v1")
 app.include_router(payments_router, prefix="/api/v1")
+app.include_router(benchmark_router, prefix="/api/v1")
 
 
 @app.get("/health")
