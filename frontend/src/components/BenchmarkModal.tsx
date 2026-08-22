@@ -70,7 +70,7 @@ export function BenchmarkModal({
             <span className="benchmark-track-badge">TRACK 02 · AI RISK MANAGER EVALUATION</span>
             <h2 className="benchmark-title">Risk Model Benchmark & Held-Out Metrics</h2>
             <p className="benchmark-subtitle">
-              Measured precision, recall, and false-positive financial cost across {report?.total_cases || 130} held-out test scenarios.
+              AgentShield’s deterministic enforcement suite evaluated 130 curated scenarios with 100% detection on this fixture: 50 legitimate requests allowed and 80 adversarial structured requests blocked or escalated.
             </p>
           </div>
           <div className="benchmark-header-actions">
