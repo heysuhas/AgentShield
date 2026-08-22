@@ -67,7 +67,7 @@ export function BenchmarkModal({
         {/* Header */}
         <div className="modal-header">
           <div>
-            <span className="benchmark-track-badge">TRACK 02 · AI RISK MANAGER EVALUATION</span>
+            <span className="benchmark-track-badge">AI FINANCIAL RISK BENCHMARK · HELD-OUT EVALUATION SET</span>
             <h2 className="benchmark-title">Risk Model Benchmark & Held-Out Metrics</h2>
             <p className="benchmark-subtitle">
               AgentShield’s deterministic enforcement suite evaluated 130 curated scenarios with 100% detection on this fixture: 50 legitimate requests allowed and 80 adversarial structured requests blocked or escalated.

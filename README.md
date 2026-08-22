@@ -10,15 +10,15 @@
 
 ---
 
-## Track 02 (AI Risk Manager) Evaluation Suite
+## Empirical Risk & Security Benchmark
 
-AgentShield includes a formal, held-out empirical benchmark evaluation suite built specifically for the **AI Risk Manager** track:
+AgentShield includes a formal empirical benchmark and evaluation suite modeling autonomous agent attacks, semantic intent hijacking, and legitimate e-commerce traffic:
 
 > *AgentShield’s deterministic enforcement suite evaluated 130 curated scenarios with 100% detection on this fixture: 50 legitimate requests allowed and 80 adversarial structured requests blocked or escalated.*
 
 | Metric | Empirical Score | Description |
 |---|:---:|---|
-| **Curated Test Scenarios** | **130** | 50 benign legitimate e-commerce checkouts + 80 adversarial structured attacks across 7 operational risk vectors |
+| **Curated Scenarios** | **130** | 50 benign legitimate e-commerce checkouts + 80 adversarial structured attacks across 7 operational risk vectors |
 | **Precision (PPV)** | **100.0%** | $\frac{TP}{TP + FP} = \frac{80}{80 + 0}$ — Zero false alarms or wrongful blocks on legitimate user purchases |
 | **Recall / Sensitivity** | **100.0%** | $\frac{TP}{TP + FN} = \frac{80}{80 + 0}$ — Complete interception of unauthorized attacks, injections, and budget overflows |
 | **F1 Score** | **1.000** | Harmonic mean accuracy across the held-out evaluation fixture |
