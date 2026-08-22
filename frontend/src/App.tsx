@@ -28,21 +28,6 @@ function reasonText(result: Result) {
   return []
 }
 
-function DecisionRail({ decision }: { decision: ReturnType<typeof decisionOf> }) {
-  const steps = [
-    { label: 'Request', state: decision ? 'done' : 'current' },
-    { label: decision === 'REVIEW' ? 'Review' : 'AgentShield', state: decision ? 'current' : 'idle' },
-    { label: 'Payment', state: decision === 'ALLOW' ? 'current' : 'idle' },
-  ]
-  return <div className={`decision-rail rail-${decision?.toLowerCase() ?? 'idle'}`} aria-label="Request flow">
-    {steps.map((step, index) => <div className="rail-step" key={step.label}>
-      <span className={`rail-dot ${step.state}`} />
-      <span>{step.label}</span>
-      {index < steps.length - 1 && <span className="rail-line" />}
-    </div>)}
-  </div>
-}
-
 function StatusMark({ decision }: { decision: string | null }) {
   if (decision === 'ALLOW') {
     return (
@@ -358,8 +343,6 @@ function AgentShieldLogo() {
           </div>
         </div>
       </section>
-
-      <DecisionRail decision={decision} />
 
       <section className="main-grid">
         <div className="left-column">
