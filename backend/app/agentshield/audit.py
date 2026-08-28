@@ -96,7 +96,7 @@ class InMemoryAuditSink:
         session_id: str,
         tool_name: str,
         arguments: dict[str, Any] | None = None,
-        decision: Literal["ALLOW", "BLOCK"],
+        decision: Literal["ALLOW", "BLOCK", "REVIEW"],
         risk_score: float,
         risk_level: RiskLevel = "LOW",
         reasons: list[str] | None = None,
