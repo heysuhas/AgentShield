@@ -8,22 +8,9 @@
 
 > **AgentShield** is a standalone, pluggable authorization and risk kernel positioned between autonomous AI agents and payment infrastructure.
 
----
-
-## Empirical Risk & Security Benchmark
-
-AgentShield includes a formal empirical benchmark and evaluation suite modeling autonomous agent attacks, semantic intent hijacking, and legitimate e-commerce traffic:
-
-> *AgentShield’s deterministic enforcement suite evaluated 130 curated scenarios with 100% detection on this fixture: 50 legitimate requests allowed and 80 adversarial structured requests blocked or escalated.*
-
-| Metric | Empirical Score | Description |
-|---|:---:|---|
-| **Curated Scenarios** | **130** | 50 benign legitimate e-commerce checkouts + 80 adversarial structured attacks across 7 operational risk vectors |
-| **Precision (PPV)** | **100.0%** | $\frac{TP}{TP + FP} = \frac{80}{80 + 0}$ — Zero false alarms or wrongful blocks on legitimate user purchases |
-| **Recall / Sensitivity** | **100.0%** | $\frac{TP}{TP + FN} = \frac{80}{80 + 0}$ — Complete interception of unauthorized attacks, injections, and budget overflows |
-| **F1 Score** | **1.000** | Harmonic mean accuracy across the held-out evaluation fixture |
-| **Loss Prevented** | **₹9,80,533** | Total unauthorized and fraudulent financial volume neutralized before hitting payment rails |
-| **False-Positive Friction** | **₹0** | Modeled 15% merchant gross margin loss from false rejections |
+<p align="center">
+  <img src="docs/assets/hero.png" alt="AgentShield Console" width="100%" style="border-radius: 8px; border: 1px solid rgba(255, 255, 255, 0.1);" />
+</p>
 
 ---
 
@@ -217,6 +204,23 @@ For full TypeScript, Go, and webhook lifecycle examples, see the [Developer & In
 
 ---
 
+## Empirical Risk & Security Benchmark
+
+AgentShield includes a formal empirical benchmark and evaluation suite modeling autonomous agent attacks, semantic intent hijacking, and legitimate e-commerce traffic:
+
+> *AgentShield’s deterministic enforcement suite evaluated 130 curated scenarios with 100% detection on this fixture: 50 legitimate requests allowed and 80 adversarial structured requests blocked or escalated.*
+
+| Metric | Empirical Score | Description |
+|---|:---:|---|
+| **Curated Scenarios** | **130** | 50 benign legitimate e-commerce checkouts + 80 adversarial structured attacks across 7 operational risk vectors |
+| **Precision (PPV)** | **100.0%** | $\frac{TP}{TP + FP} = \frac{80}{80 + 0}$ — Zero false alarms or wrongful blocks on legitimate user purchases |
+| **Recall / Sensitivity** | **100.0%** | $\frac{TP}{TP + FN} = \frac{80}{80 + 0}$ — Complete interception of unauthorized attacks, injections, and budget overflows |
+| **F1 Score** | **1.000** | Harmonic mean accuracy across the held-out evaluation fixture |
+| **Loss Prevented** | **₹9,80,533** | Total unauthorized and fraudulent financial volume neutralized before hitting payment rails |
+| **False-Positive Friction** | **₹0** | Modeled 15% merchant gross margin loss from false rejections |
+
+---
+
 ## API Reference Summary
 
 | Method | Endpoint | Description |
@@ -247,7 +251,7 @@ uv run pytest -v
 ```
 
 ```text
-======================== 115 passed, 1 warning in 1.81s ========================
+============================= 115 passed in 2.06s ==============================
 ```
 
 ---
